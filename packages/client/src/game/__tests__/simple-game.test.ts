@@ -1,6 +1,14 @@
+import * as THREE from 'three';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createWorld, addEntity, addComponent, hasComponent } from 'bitecs';
 import { Transform, Block, Bomb, PhysicsBody, Velocity } from '@/core/components';
+import {
+  bankedTurnBias,
+  delayedCurveDirection,
+  delayedCurveProgress,
+  releaseBankQuaternion,
+} from '@/game/discs';
+import { Golfer } from '@/rendering/Golfer';
 
 describe('Game Components', () => {
   let world: any;
@@ -86,5 +94,54 @@ describe('Game Components', () => {
     expect(level0Blocks.length).toBe(3);
     expect(level1Blocks.length).toBe(2);
     expect(level2Blocks.length).toBe(1);
+  });
+
+  it('should stay flat early and bank only after the delayed curve threshold', () => {
+    const hyzer = releaseBankQuaternion(-0.35);
+    const anhyzer = releaseBankQuaternion(0.35);
+
+    expect(hyzer.x).toBeLessThan(0);
+    expect(anhyzer.x).toBeGreaterThan(0);
+    expect(hyzer.y).toBe(0);
+    expect(anhyzer.z).toBe(0);
+    expect(delayedCurveProgress(10, 40)).toBe(0);
+    expect(delayedCurveProgress(30, 40)).toBe(0);
+    expect(delayedCurveProgress(31, 40)).toBeGreaterThan(0);
+    expect(delayedCurveProgress(40, 40)).toBe(1);
+    expect(delayedCurveDirection(-0.35, -1)).toBeLessThan(0);
+    expect(delayedCurveDirection(0.35, -1)).toBeGreaterThan(0);
+    expect(delayedCurveDirection(-0.35, 1)).toBeGreaterThan(0);
+    expect(delayedCurveDirection(0, -1)).toBe(0);
+    expect(bankedTurnBias(-0.35, -1, 0.9)).toBe(0);
+    expect(bankedTurnBias(0.35, -1, 0.9)).toBe(0);
+  });
+
+  it('should rebuild the hair root when a preset changes the hairstyle', () => {
+    const golfer = new Golfer();
+
+    expect(golfer.root.getObjectByName('hair-root')).not.toBeNull();
+
+    const before = golfer.root.getObjectByName('hair-root') as THREE.Group;
+    golfer.setAppearance({ hairStyle: 'short' });
+
+    const after = golfer.root.getObjectByName('hair-root') as THREE.Group;
+    expect(after).not.toBeNull();
+    expect(after).not.toBe(before);
+    expect(after.children.length).toBeGreaterThan(0);
+
+    golfer.dispose();
+  });
+
+  it('should equip and remove golfer accessories without leaving orphaned nodes', () => {
+    const golfer = new Golfer();
+    golfer.setAppearance({ shirtColor: 0x123456, shortsColor: 0x654321 });
+    golfer.equipAccessory('cap', { color: 0x987654 });
+
+    expect(golfer.root.getObjectByName('cap-accessory')).not.toBeNull();
+
+    golfer.removeAccessory('cap');
+    expect(golfer.root.getObjectByName('cap-accessory')).toBeUndefined();
+
+    golfer.dispose();
   });
 });

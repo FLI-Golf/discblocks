@@ -35,9 +35,15 @@ async function main() {
 
   const app = document.querySelector<HTMLElement>('#app')!;
 
-  const bag = new Bag(app, (selection) => {
-    gameManager.previewDisc(selection.disc.color);
-  });
+  const bag = new Bag(
+    app,
+    (selection) => {
+      gameManager.previewDisc(selection.disc.color);
+    },
+    (appearance, accessories) => {
+      gameManager.setCurrentGolferAppearance(appearance, accessories);
+    }
+  );
 
   const leftStack = document.createElement('div');
   leftStack.id = 'left-stack';

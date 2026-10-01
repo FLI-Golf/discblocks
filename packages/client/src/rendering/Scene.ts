@@ -250,10 +250,9 @@ export class Scene {
 
   private setupClouds() {
     const material = new THREE.MeshLambertMaterial({
-      color: 0xffffff,
+      color: 0xf1f5fb,
       transparent: true,
-      opacity: 0.85,
-      // Clouds sit past the fog range, so keep them out of it.
+      opacity: 0.82,
       fog: false,
     });
 
@@ -497,9 +496,9 @@ export class Scene {
   private setupMountains() {
     // Each band further out is paler and bluer, which is what sells distance.
     const ranges = [
-      { radius: 820, count: 34, height: 86, spread: 210, color: 0x9c8468, mesaChance: 0.45 },
-      { radius: 1240, count: 38, height: 118, spread: 290, color: 0xb3a28c, mesaChance: 0.35 },
-      { radius: 1720, count: 40, height: 158, spread: 380, color: 0xc4bdb0, mesaChance: 0.25 },
+      { radius: 820, count: 34, height: 86, spread: 210, color: 0x8b715b, mesaChance: 0.45 },
+      { radius: 1240, count: 38, height: 118, spread: 290, color: 0xa28b74, mesaChance: 0.35 },
+      { radius: 1720, count: 40, height: 158, spread: 380, color: 0xc0b59d, mesaChance: 0.25 },
     ];
 
     for (const range of ranges) {

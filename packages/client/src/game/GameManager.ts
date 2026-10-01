@@ -30,14 +30,22 @@ import {
   createTorusMesh,
   createCapsuleMesh,
 } from '@/rendering/RenderSystem';
-import { Golfer } from '@/rendering/Golfer';
+import { Golfer, type GolferAppearance, type AccessorySlot } from '@/rendering/Golfer';
 import { getPhysicsWorld } from '@/physics/init';
 import { unregisterPhysicsBody, entityToRigidBody } from '@/physics/PhysicsSystem';
 import { COURSE, BEACON_FROM_UNITS } from './course';
 import { Hole } from './hole';
 import { GROUP } from './players';
 import { playChains } from './audio';
-import type { Disc, ThrowSelection, ThrowStyle } from './discs';
+import {
+  DELAYED_CURVE_CONFIG,
+  delayedCurveDirection,
+  delayedCurveProgress,
+  releaseBankQuaternion,
+  type Disc,
+  type ThrowSelection,
+  type ThrowStyle,
+} from './discs';
 
 const BASKET = {
   baseRadius: 1.0,
@@ -81,10 +89,14 @@ export class GameManager {
     entity: number;
     disc: Disc;
     style: ThrowStyle;
+    bank: number;
     playerIndex: number;
     airborne: number;
     settleTimer: number;
     isRoller: boolean;
+    flightDirection: THREE.Vector3;
+    launchOrigin: THREE.Vector3;
+    estimatedFlightDistance: number;
   } | null = null;
   private releasePoint = new THREE.Vector3();
   private hudHideTimer = 0;
@@ -104,6 +116,27 @@ export class GameManager {
 
   private get golfer(): Golfer {
     return this.golfers[this.hole.currentPlayerIndex];
+  }
+
+  setCurrentGolferAppearance(
+    appearance: Partial<GolferAppearance>,
+    accessories: Partial<Record<AccessorySlot, boolean>> = {}
+  ) {
+    const golfer = this.golfer;
+    golfer.setAppearance(appearance);
+
+    for (const slot of ['cap', 'glasses', 'bag', 'disc'] as AccessorySlot[]) {
+      const visible = accessories[slot];
+      if (visible === undefined) {
+        continue;
+      }
+
+      if (visible) {
+        golfer.equipAccessory(slot, { visible: true });
+      } else {
+        golfer.removeAccessory(slot);
+      }
+    }
   }
 
   reset() {
@@ -561,24 +594,41 @@ export class GameManager {
 
     const fullSpeed = COURSE.throwSpeed * (0.52 + active.disc.speed * 0.045);
     const pace = Math.min(horizontal / fullSpeed, 1);
-    const spin = active.style.spinSign;
-
-    // Sideways unit vector, to the right of travel.
-    const rightX = -velocity.z / horizontal;
-    const rightZ = velocity.x / horizontal;
-
-    const turn = active.disc.turn * pace * pace * 0.9;
-    const fade = active.disc.fade * (1 - pace) * (1 - pace) * 1.6;
-    const lateral = (-turn + fade) * spin * dt;
 
     // Glide resists gravity while the disc still has pace.
     const lift = active.disc.glide * pace * 0.55 * dt;
 
+    const travel = new THREE.Vector3(
+      Transform.x[active.entity] - active.launchOrigin.x,
+      0,
+      Transform.z[active.entity] - active.launchOrigin.z
+    );
+    const progress = Math.max(0, travel.dot(active.flightDirection));
+    const curveT = delayedCurveProgress(
+      progress,
+      active.estimatedFlightDistance,
+      DELAYED_CURVE_CONFIG
+    );
+    const curveSide = delayedCurveDirection(active.bank, active.style.spinSign);
+
+    const right = new THREE.Vector3(
+      -active.flightDirection.z,
+      0,
+      active.flightDirection.x
+    ).normalize();
+    const steering = right.multiplyScalar(
+      curveSide * DELAYED_CURVE_CONFIG.curveStrength * curveT * dt
+    );
+
+    body.setRotation(
+      releaseBankQuaternion(curveSide * DELAYED_CURVE_CONFIG.bankAngle * curveT),
+      true
+    );
     body.setLinvel(
       {
-        x: velocity.x + rightX * lateral,
+        x: velocity.x + steering.x,
         y: velocity.y + lift,
-        z: velocity.z + rightZ * lateral,
+        z: velocity.z + steering.z,
       },
       true
     );
@@ -619,13 +669,20 @@ export class GameManager {
       loft = launch * loftRatio;
     }
 
+    const flightDirection = new THREE.Vector3(aimX * 0.45, 0, -1).normalize();
+    const estimatedFlightDistance = Math.max(
+      18,
+      (18 + disc.speed * 5.2 + disc.glide * 3.6 + power * 20 + Math.abs(disc.turn) * 2.4) *
+        style.powerScale
+    );
+
     const body = entityToRigidBody.get(entity);
     if (body) {
       // Aim is scaled on its own, not by launch speed, so fast discs are not
       // disproportionately sensitive to where the shot was clicked.
       body.setLinvel(
         {
-          x: aimX * launch * 0.45 + Math.sin(angle.bank) * launch * 0.08,
+          x: aimX * launch * 0.45,
           y: style.roller ? Math.min(aimY * 10 + loft * 0.2, 2) : aimY * 22 + loft,
           z: -launch,
         },
@@ -640,10 +697,7 @@ export class GameManager {
       } else {
         // Spin direction decides which way the disc fades; faster discs are thrown harder.
         body.setAngvel({ x: 0, y: style.spinSign * (26 + disc.speed * 2.4) * power, z: 0 }, true);
-        body.setRotation(
-          { x: 0, y: 0, z: Math.sin(angle.bank / 2) * style.spinSign, w: Math.cos(angle.bank / 2) },
-          true
-        );
+        body.setRotation(releaseBankQuaternion(0), true);
       }
     }
 
@@ -660,10 +714,14 @@ export class GameManager {
       entity,
       disc,
       style,
+      bank: angle.bank,
       playerIndex,
       airborne: 0,
       settleTimer: 0,
       isRoller: style.roller === true,
+      flightDirection,
+      launchOrigin: new THREE.Vector3(this.releasePoint.x, 0, this.releasePoint.z),
+      estimatedFlightDistance,
     };
     this.entities.push(entity);
 

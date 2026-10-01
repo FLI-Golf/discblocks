@@ -166,10 +166,68 @@ export interface ReleaseAngle {
 }
 
 export const RELEASE_ANGLES: ReleaseAngle[] = [
-  { id: 'hyzer', name: 'Hyzer', hint: 'Banked down. Curves early.', bank: -0.35 },
-  { id: 'flat', name: 'Flat', hint: 'Neutral release.', bank: 0 },
-  { id: 'anhyzer', name: 'Anhyzer', hint: 'Banked up. Curves away first.', bank: 0.35 },
+  {
+    id: 'hyzer',
+    name: 'Hyzer',
+    hint: 'Hyzer: flies straight, then curves left late.',
+    bank: -0.35,
+  },
+  { id: 'flat', name: 'Flat', hint: 'Flat: stays straight the whole flight.', bank: 0 },
+  {
+    id: 'anhyzer',
+    name: 'Anhyzer',
+    hint: 'Anhyzer: flies straight, then curves right late.',
+    bank: 0.35,
+  },
 ];
+
+export const DELAYED_CURVE_CONFIG = {
+  curveStart: 0.75,
+  bankAngle: 0.72,
+  curveStrength: 2.1,
+  blendDistance: 0.25,
+} as const;
+
+export function releaseBankQuaternion(bank: number): {
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+} {
+  const halfBank = bank / 2;
+  return {
+    x: Math.sin(halfBank),
+    y: 0,
+    z: 0,
+    w: Math.cos(halfBank),
+  };
+}
+
+export function delayedCurveProgress(
+  progress: number,
+  flightDistance: number,
+  config = DELAYED_CURVE_CONFIG
+): number {
+  const start = flightDistance * config.curveStart;
+  const blendDistance = Math.max(flightDistance * config.blendDistance, 1);
+  return Math.max(0, Math.min(1, (progress - start) / blendDistance));
+}
+
+export function delayedCurveDirection(bank: number, spin: number): number {
+  if (bank === 0) {
+    return 0;
+  }
+  return -Math.sign(bank) * spin;
+}
+
+export function bankedTurnBias(bank: number, spin: number, pace: number): number {
+  const threshold = 0.35;
+  const ramp = Math.max(0, Math.min(1, (threshold - pace) / threshold));
+  if (ramp <= 0) {
+    return 0;
+  }
+  return -bank * spin * ramp * (0.8 + (1 - pace) * 0.7);
+}
 
 export interface ThrowSelection {
   disc: Disc;

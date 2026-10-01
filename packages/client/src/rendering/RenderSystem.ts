@@ -255,6 +255,7 @@ const SPONSOR_BOARDS = [
   { url: '/yac.png', bg: '#ffffff' },
   { url: '/neology_logo.png', bg: '#0f2545' },
   { url: '/am.jpg', bg: '#ffffff' },
+  { url: '/Pure-Logo.png', bg: '#f7f7f8' },
 ];
 
 /** One sponsor board spans this many world units before the texture repeats. */

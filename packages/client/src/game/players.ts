@@ -5,7 +5,7 @@ export interface GolferLook {
   shorts: number;
   skin: number;
   hair: number;
-  hairStyle: 'ponytail' | 'short' | 'cap';
+  hairStyle: 'ponytail' | 'short' | 'cap' | 'visor';
   /** Height and bulk multiplier. */
   build: number;
 }
