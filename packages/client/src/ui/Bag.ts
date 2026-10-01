@@ -49,6 +49,11 @@ export class Bag {
       })
     );
     this.root.appendChild(this.powerSection());
+
+    const hint = document.createElement('p');
+    hint.className = 'bag-hint';
+    hint.textContent = 'Pick a disc and throw style, then click the fairway to throw';
+    this.root.appendChild(hint);
   }
 
   private section(title: string): HTMLElement {

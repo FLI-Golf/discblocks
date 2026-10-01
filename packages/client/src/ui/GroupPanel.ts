@@ -1,4 +1,5 @@
 import { formatScore } from '@/game/players';
+import { FEET_PER_UNIT } from '@/game/course';
 import type { Hole, PlayerState } from '@/game/hole';
 
 function statusLabel(state: PlayerState, hole: Hole): string {
@@ -8,7 +9,7 @@ function statusLabel(state: PlayerState, hole: Hole): string {
   if (!state.lie) {
     return 'Tee';
   }
-  return `${Math.round(hole.distanceToPin(state) * 1.4)} ft`;
+  return `${Math.round(hole.distanceToPin(state) * FEET_PER_UNIT)} ft`;
 }
 
 export class GroupPanel {

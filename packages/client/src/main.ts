@@ -7,6 +7,9 @@ import { Scene } from './rendering/Scene';
 import { GameManager } from './game/GameManager';
 import { Bag } from './ui/Bag';
 import { GroupPanel } from './ui/GroupPanel';
+import { WindCard } from './ui/WindCard';
+import { Ticker } from './ui/Ticker';
+import { HoleCard } from './ui/HoleCard';
 import { pipe } from 'bitecs';
 
 async function main() {
@@ -30,16 +33,37 @@ async function main() {
   // Create systems pipeline
   const pipeline = pipe(PhysicsSystem, RenderSystem);
 
-  const bag = new Bag(document.querySelector<HTMLElement>('#app')!, (selection) => {
+  const app = document.querySelector<HTMLElement>('#app')!;
+
+  const bag = new Bag(app, (selection) => {
     gameManager.previewDisc(selection.disc.color);
   });
-  const group = new GroupPanel(document.querySelector<HTMLElement>('#app')!, gameManager.hole);
+
+  const leftStack = document.createElement('div');
+  leftStack.id = 'left-stack';
+  app.appendChild(leftStack);
+
+  const holeCard = new HoleCard(leftStack, gameManager.hole, () => scene.startFlyover());
+  const group = new GroupPanel(leftStack, gameManager.hole);
   gameManager.onHoleChange = () => {
     group.setHole(gameManager.hole);
+    holeCard.setHole(gameManager.hole);
   };
+
+  const banner = document.createElement('div');
+  banner.id = 'fli-banner';
+  banner.innerHTML = '<strong>FLI</strong> OVER <em>Hole tour</em>';
+  app.appendChild(banner);
+
+  const windCard = new WindCard(app);
+  new Ticker(app);
 
   // Handle click to shoot
   canvas.addEventListener('click', (event) => {
+    if (scene.isCinematic) {
+      return;
+    }
+
     const rect = canvas.getBoundingClientRect();
     const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -71,6 +95,9 @@ async function main() {
       pipeline(world);
       accumulator -= fixedTimeStep;
     }
+
+    banner.classList.toggle('is-visible', scene.isFlyingOver);
+    windCard.update(scene.windHeading, scene.windSpeedMph);
 
     requestAnimationFrame(gameLoop);
   }

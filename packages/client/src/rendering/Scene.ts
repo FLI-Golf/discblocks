@@ -4,8 +4,22 @@ import {
   LOGO_URL,
   createScoreboardMesh,
   createFlagTexture,
-  createTickerMesh,
+  createBannerPlaneMesh,
 } from './RenderSystem';
+
+interface Aircraft {
+  group: THREE.Group;
+  /** Half the width of the run, in world units. */
+  span: number;
+  altitude: number;
+  z: number;
+  speed: number;
+  dir: number;
+  x: number;
+  active: boolean;
+  nextAt: number;
+  interval: number;
+}
 
 interface Flag {
   pivot: THREE.Group;
@@ -20,23 +34,41 @@ export class Scene {
   /** Heading the wind blows toward, in radians about Y. */
   public windHeading = -0.55;
   public windStrength = 1;
+  public windSpeedMph = 9;
+
+  private windBaseHeading = -0.55;
+  private windBaseSpeed = 9;
+  private clouds: THREE.Group[] = [];
+  private aircraft: Aircraft[] = [];
 
   private flags: Flag[] = [];
-  private tickerTexture: THREE.Texture | null = null;
   private clock = new THREE.Clock();
   private lastTime = 0;
 
   private cameraGoal = new THREE.Vector3();
   private lookGoal = new THREE.Vector3();
   private lookNow = new THREE.Vector3();
+  private flyover: { t: number; duration: number } | null = null;
+  private beacon: THREE.Group | null = null;
+  private beaconLamp: THREE.Mesh | null = null;
+  private beaconHalo: THREE.Mesh | null = null;
+  private beaconBeam: THREE.Mesh | null = null;
+  private beaconVane: THREE.Group | null = null;
+  private beaconWanted = false;
+  private chase: {
+    position: THREE.Vector3;
+    heading: THREE.Vector3;
+    holdT: number;
+    settled: boolean;
+  } | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x87ceeb);
-    this.scene.fog = new THREE.Fog(0x9fc6e8, 240, 820);
+    this.scene.background = new THREE.Color(0x9fc4e0);
+    this.scene.fog = new THREE.Fog(0xd9c6a4, 430, 1700);
 
     const aspect = window.innerWidth / window.innerHeight;
-    this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 900);
+    this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 2400);
     this.frameShot({ x: 0, y: 0, z: COURSE.teeZ }, { x: 0, z: COURSE.basketZ });
 
     this.renderer = new THREE.WebGLRenderer({
@@ -72,12 +104,12 @@ export class Scene {
     directionalLight.position.set(-70, 80, 50);
     directionalLight.target.position.set(0, 0, -30);
     directionalLight.castShadow = true;
-    directionalLight.shadow.camera.left = -95;
-    directionalLight.shadow.camera.right = 95;
-    directionalLight.shadow.camera.top = 150;
-    directionalLight.shadow.camera.bottom = -150;
+    directionalLight.shadow.camera.left = -110;
+    directionalLight.shadow.camera.right = 110;
+    directionalLight.shadow.camera.top = 300;
+    directionalLight.shadow.camera.bottom = -300;
     directionalLight.shadow.camera.near = 0.1;
-    directionalLight.shadow.camera.far = 340;
+    directionalLight.shadow.camera.far = 620;
     directionalLight.shadow.mapSize.width = 4096;
     directionalLight.shadow.mapSize.height = 4096;
     directionalLight.shadow.bias = -0.0004;
@@ -87,10 +119,19 @@ export class Scene {
   }
 
   private setupGround() {
+    // Desert plain running out to the mountains, so the horizon is not empty sky.
+    const plain = new THREE.Mesh(
+      new THREE.PlaneGeometry(3200, 3200),
+      new THREE.MeshStandardMaterial({ color: 0xbb9a6c, roughness: 1, metalness: 0 })
+    );
+    plain.rotation.x = -Math.PI / 2;
+    plain.position.y = -0.08;
+    this.scene.add(plain);
+
     const groundGeometry = new THREE.PlaneGeometry(COURSE.groundWidth, COURSE.groundLength);
     const groundMaterial = new THREE.MeshStandardMaterial({
-      color: 0x4f7f42,
-      roughness: 0.95,
+      color: 0xc6a878,
+      roughness: 0.98,
       metalness: 0,
     });
     const ground = new THREE.Mesh(groundGeometry, groundMaterial);
@@ -101,8 +142,8 @@ export class Scene {
     const fairwayLength = COURSE.teeZ - COURSE.basketZ + 40;
     const fairwayGeometry = new THREE.PlaneGeometry(COURSE.fairwayWidth, fairwayLength);
     const fairwayMaterial = new THREE.MeshStandardMaterial({
-      color: 0x8fce6b,
-      roughness: 0.9,
+      color: 0x9fae6a,
+      roughness: 0.92,
       metalness: 0,
     });
     const fairway = new THREE.Mesh(fairwayGeometry, fairwayMaterial);
@@ -124,8 +165,376 @@ export class Scene {
     this.scene.add(tee);
 
     this.setupTeePad();
+    this.setupVipSeating();
     this.setupGrandstands();
     this.setupLogos();
+    this.setupMountains();
+    this.setupBeacon();
+    this.setupClouds();
+    this.setupAircraft();
+  }
+
+  private setupAircraft() {
+    // Altitudes are picked to sit inside the camera's vertical view cone from the
+    // tee; much higher and they fly past unseen above the top of the frame.
+    const fleet = [
+      {
+        build: () => createBannerPlaneMesh(0, 0xf2b705),
+        altitude: 48,
+        z: -60,
+        speed: 16,
+        scale: 1.7,
+        nextAt: 25,
+        interval: 85,
+      },
+      {
+        build: () => createBannerPlaneMesh(2, 0xd8232a),
+        altitude: 72,
+        z: -150,
+        speed: 13,
+        scale: 2.2,
+        nextAt: 95,
+        interval: 120,
+      },
+    ];
+
+    for (const entry of fleet) {
+      const group = entry.build();
+      group.scale.setScalar(entry.scale);
+      group.visible = false;
+      this.scene.add(group);
+
+      this.aircraft.push({
+        group,
+        span: 420,
+        altitude: entry.altitude,
+        z: entry.z,
+        speed: entry.speed,
+        dir: 1,
+        x: 0,
+        active: false,
+        nextAt: entry.nextAt,
+        interval: entry.interval,
+      });
+    }
+  }
+
+  private updateAircraft(time: number, dt: number) {
+    for (const craft of this.aircraft) {
+      if (!craft.active) {
+        if (time < craft.nextAt) {
+          continue;
+        }
+        craft.active = true;
+        craft.dir = Math.random() < 0.5 ? 1 : -1;
+        craft.x = -craft.dir * craft.span;
+        craft.group.visible = true;
+        // Local +X is the nose, so flip the whole craft when flying the other way.
+        craft.group.rotation.y = craft.dir > 0 ? 0 : Math.PI;
+      }
+
+      craft.x += craft.dir * craft.speed * dt;
+      craft.group.position.set(
+        craft.x,
+        craft.altitude + Math.sin(time * 0.6 + craft.z) * 1.2,
+        craft.z
+      );
+
+      if (Math.abs(craft.x) > craft.span) {
+        craft.active = false;
+        craft.group.visible = false;
+        craft.nextAt = time + craft.interval;
+      }
+    }
+  }
+
+  private setupClouds() {
+    const material = new THREE.MeshLambertMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.85,
+      // Clouds sit past the fog range, so keep them out of it.
+      fog: false,
+    });
+
+    for (let i = 0; i < 16; i++) {
+      const cloud = new THREE.Group();
+      const puffs = 4 + Math.floor(Math.random() * 4);
+
+      for (let p = 0; p < puffs; p++) {
+        const radius = 26 + Math.random() * 30;
+        const puff = new THREE.Mesh(new THREE.SphereGeometry(radius, 10, 8), material);
+        puff.position.set(
+          (p - puffs / 2) * 34 + (Math.random() - 0.5) * 18,
+          (Math.random() - 0.5) * 14,
+          (Math.random() - 0.5) * 30
+        );
+        puff.scale.y = 0.55;
+        cloud.add(puff);
+      }
+
+      cloud.position.set(
+        (Math.random() - 0.5) * 1900,
+        170 + Math.random() * 90,
+        (Math.random() - 0.5) * 1900
+      );
+      this.scene.add(cloud);
+      this.clouds.push(cloud);
+    }
+  }
+
+  private updateClouds(dt: number) {
+    const driftX = Math.sin(this.windHeading) * this.windSpeedMph * 0.4;
+    const driftZ = Math.cos(this.windHeading) * this.windSpeedMph * 0.4;
+    const bound = 1100;
+
+    for (const cloud of this.clouds) {
+      cloud.position.x += driftX * dt;
+      cloud.position.z += driftZ * dt;
+
+      // Wrap to the far side so the sky never empties out.
+      if (cloud.position.x > bound) cloud.position.x = -bound;
+      if (cloud.position.x < -bound) cloud.position.x = bound;
+      if (cloud.position.z > bound) cloud.position.z = -bound;
+      if (cloud.position.z < -bound) cloud.position.z = bound;
+    }
+  }
+
+  private updateWind(time: number) {
+    // Slow shifts so the flags and readout are never completely static.
+    this.windHeading = this.windBaseHeading + Math.sin(time * 0.06) * 0.3;
+    this.windSpeedMph = this.windBaseSpeed + Math.sin(time * 0.11) * 2.5;
+    this.windStrength = this.windSpeedMph / 9;
+  }
+
+  /** Pulsing marker above the basket, shown when the thrower is a long way out. */
+  private setupBeacon() {
+    const group = new THREE.Group();
+    group.position.set(0, 11, COURSE.basketZ);
+
+    this.beaconLamp = new THREE.Mesh(
+      new THREE.SphereGeometry(0.85, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffd54a })
+    );
+    group.add(this.beaconLamp);
+
+    this.beaconHalo = new THREE.Mesh(
+      new THREE.SphereGeometry(2, 16, 12),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd54a,
+        transparent: true,
+        opacity: 0.25,
+        depthWrite: false,
+      })
+    );
+    group.add(this.beaconHalo);
+
+    this.beaconBeam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.1, 0.5, 6.2, 12, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xffd54a,
+        transparent: true,
+        opacity: 0.22,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      })
+    );
+    this.beaconBeam.position.y = -3.3;
+    group.add(this.beaconBeam);
+
+    this.beaconVane = this.buildWindVane();
+    this.beaconVane.position.y = 2.6;
+    group.add(this.beaconVane);
+
+    group.visible = false;
+    this.scene.add(group);
+    this.beacon = group;
+  }
+
+  /** Horizontal arrow pointing the way the wind blows. Points along local +Z. */
+  private buildWindVane(): THREE.Group {
+    const vane = new THREE.Group();
+    const head = new THREE.MeshBasicMaterial({ color: 0xe8705f, fog: false });
+    const tail = new THREE.MeshBasicMaterial({ color: 0xf2f4f8, fog: false });
+
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(1.1, 2.6, 4), head);
+    tip.rotation.x = Math.PI / 2;
+    tip.position.z = 2.4;
+    vane.add(tip);
+
+    const shaft = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.18, 3.4), tail);
+    shaft.position.z = 0.2;
+    vane.add(shaft);
+
+    for (const side of [-1, 1]) {
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.5, 1.5), tail);
+      fin.position.set(side * 0.5, 0, -1.7);
+      fin.rotation.y = side * 0.5;
+      vane.add(fin);
+    }
+
+    return vane;
+  }
+
+  setBeaconVisible(visible: boolean) {
+    this.beaconWanted = visible;
+  }
+
+  private updateBeacon(time: number) {
+    if (!this.beacon || !this.beaconLamp || !this.beaconHalo || !this.beaconBeam) {
+      return;
+    }
+
+    // Always lit during the hole tour, so the wind vane can be read on the way past.
+    this.beacon.visible = this.beaconWanted || this.flyover !== null;
+    if (!this.beacon.visible) {
+      return;
+    }
+
+    const pulse = 0.5 + 0.5 * Math.sin(time * 4.2);
+
+    this.beaconLamp.scale.setScalar(0.85 + pulse * 0.35);
+    (this.beaconHalo.material as THREE.MeshBasicMaterial).opacity = 0.1 + pulse * 0.3;
+    this.beaconHalo.scale.setScalar(0.9 + pulse * 0.3);
+    (this.beaconBeam.material as THREE.MeshBasicMaterial).opacity = 0.1 + pulse * 0.22;
+
+    if (this.beaconVane) {
+      // The vane points along local +Z, which a Y rotation of h maps straight
+      // onto the wind vector (sin h, cos h).
+      this.beaconVane.rotation.y = this.windHeading;
+      this.beaconVane.position.y = 2.6 + Math.sin(time * 1.6) * 0.18;
+    }
+  }
+
+  /** Shaded decks either side of the tee, close enough to see the drive. */
+  private setupVipSeating() {
+    const deckWidth = 11;
+    const deckDepth = 16;
+    const deckHeight = 1.3;
+    const offset = COURSE.teePadWidth / 2 + deckWidth / 2 + 3;
+
+    const timber = new THREE.MeshStandardMaterial({ color: 0xa8784a, roughness: 0.9 });
+    const rail = new THREE.MeshStandardMaterial({
+      color: 0x45505c,
+      roughness: 0.5,
+      metalness: 0.6,
+    });
+    const canopy = new THREE.MeshStandardMaterial({
+      color: 0xf0ead8,
+      roughness: 0.85,
+      side: THREE.DoubleSide,
+    });
+    const seat = new THREE.MeshStandardMaterial({ color: 0x1f3a5f, roughness: 0.8 });
+    const table = new THREE.MeshStandardMaterial({ color: 0xe8e2d2, roughness: 0.7 });
+
+    const shirts = [0xe8e8ea, 0xd94f3d, 0xf2c14e, 0x2f6fb5, 0x3fa46a];
+
+    for (const side of [-1, 1]) {
+      const x = side * offset;
+
+      const deck = new THREE.Mesh(new THREE.BoxGeometry(deckWidth, deckHeight, deckDepth), timber);
+      deck.position.set(x, deckHeight / 2, COURSE.teeZ);
+      deck.castShadow = true;
+      deck.receiveShadow = true;
+      this.scene.add(deck);
+
+      const front = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.1, deckDepth), rail);
+      front.position.set(x - side * (deckWidth / 2), deckHeight + 0.55, COURSE.teeZ);
+      this.scene.add(front);
+
+      for (const end of [-1, 1]) {
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 4.6, 8), rail);
+        post.position.set(x, deckHeight + 2.3, COURSE.teeZ + (end * deckDepth) / 2.4);
+        this.scene.add(post);
+      }
+
+      const shade = new THREE.Mesh(
+        new THREE.BoxGeometry(deckWidth + 1.4, 0.22, deckDepth + 1.4),
+        canopy
+      );
+      shade.position.set(x, deckHeight + 4.7, COURSE.teeZ);
+      this.scene.add(shade);
+
+      // Two rows of seats facing the tee, with a drinks table between them.
+      for (let row = 0; row < 2; row++) {
+        for (let i = 0; i < 3; i++) {
+          const sx = x + side * (row === 0 ? -2.4 : 1.6);
+          const sz = COURSE.teeZ + (i - 1) * 4.2;
+
+          const chair = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.9, 1.1), seat);
+          chair.position.set(sx, deckHeight + 0.45, sz);
+          chair.castShadow = true;
+          this.scene.add(chair);
+
+          const body = new THREE.Mesh(
+            new THREE.CapsuleGeometry(0.34, 0.7, 3, 8),
+            new THREE.MeshLambertMaterial({ color: shirts[(row * 3 + i) % shirts.length] })
+          );
+          body.position.set(sx, deckHeight + 1.5, sz);
+          body.castShadow = true;
+          this.scene.add(body);
+
+          const head = new THREE.Mesh(
+            new THREE.SphereGeometry(0.26, 8, 6),
+            new THREE.MeshLambertMaterial({ color: 0xd9a877 })
+          );
+          head.position.set(sx, deckHeight + 2.3, sz);
+          this.scene.add(head);
+        }
+      }
+
+      const top = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 0.14, 16), table);
+      top.position.set(x - side * 0.4, deckHeight + 1.2, COURSE.teeZ);
+      this.scene.add(top);
+
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 1.2, 8), rail);
+      stem.position.set(x - side * 0.4, deckHeight + 0.6, COURSE.teeZ);
+      this.scene.add(stem);
+    }
+  }
+
+  /** Layered desert ridges and mesas well beyond the stadium. */
+  private setupMountains() {
+    // Each band further out is paler and bluer, which is what sells distance.
+    const ranges = [
+      { radius: 820, count: 34, height: 86, spread: 210, color: 0x9c8468, mesaChance: 0.45 },
+      { radius: 1240, count: 38, height: 118, spread: 290, color: 0xb3a28c, mesaChance: 0.35 },
+      { radius: 1720, count: 40, height: 158, spread: 380, color: 0xc4bdb0, mesaChance: 0.25 },
+    ];
+
+    for (const range of ranges) {
+      const material = new THREE.MeshStandardMaterial({
+        color: range.color,
+        roughness: 1,
+        metalness: 0,
+        flatShading: true,
+      });
+
+      for (let i = 0; i < range.count; i++) {
+        // Overlapping neighbours merge into a ridge line instead of separate cones.
+        const angle = (i / range.count) * Math.PI * 2 + (Math.random() - 0.5) * 0.14;
+        const distance = range.radius + (Math.random() - 0.5) * range.radius * 0.22;
+        const height = range.height * (0.5 + Math.random() * 0.9);
+        const base = range.spread * (0.7 + Math.random() * 0.8);
+
+        // Flat-topped mesas alongside pointed peaks, and enough radial segments
+        // that the silhouette stops reading as a pyramid.
+        const isMesa = Math.random() < range.mesaChance;
+        const topRadius = isMesa ? base * (0.3 + Math.random() * 0.25) : base * 0.04;
+
+        const peak = new THREE.Mesh(
+          new THREE.CylinderGeometry(topRadius, base, height, 9 + Math.floor(Math.random() * 4), 1),
+          material
+        );
+
+        peak.position.set(Math.sin(angle) * distance, height / 2 - 14, Math.cos(angle) * distance);
+        peak.rotation.y = Math.random() * Math.PI;
+        // Squashed on one axis so no two read as the same symmetrical cone.
+        peak.scale.set(0.8 + Math.random() * 0.7, 1, 0.8 + Math.random() * 0.7);
+
+        this.scene.add(peak);
+      }
+    }
   }
 
   private setupTeePad() {
@@ -186,12 +595,58 @@ export class Scene {
       depthWrite: false,
     });
 
+    // Crest sits just short of the first pillar gate, well clear of the tee so it
+    // does not read behind the golfer at address.
+    const firstGateZ = Math.max(...COURSE.pillars.map((p: { z: number }) => p.z));
     const decalSize = 22;
     const decal = new THREE.Mesh(new THREE.PlaneGeometry(decalSize, decalSize), material);
     decal.rotation.x = -Math.PI / 2;
-    decal.position.set(0, 0.06, (COURSE.teeZ + COURSE.basketZ) / 2);
+    decal.position.set(0, 0.06, firstGateZ + decalSize / 2 + 3);
     decal.renderOrder = 1;
     this.scene.add(decal);
+
+    // Sponsor decal centred on the run of pillars.
+    const pillarsCenterZ =
+      COURSE.pillars.reduce((sum: number, p: { z: number }) => sum + p.z, 0) /
+      COURSE.pillars.length;
+    const amWidth = 24;
+    const amLogo = new THREE.Mesh(
+      // 440 x 384 source, kept at its own aspect so it is not stretched.
+      new THREE.PlaneGeometry(amWidth, amWidth * (384 / 440)),
+      new THREE.MeshBasicMaterial({
+        map: (() => {
+          const tex = new THREE.TextureLoader().load('/am.jpg');
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.anisotropy = 8;
+          return tex;
+        })(),
+        depthWrite: false,
+      })
+    );
+    amLogo.rotation.x = -Math.PI / 2;
+    amLogo.position.set(0, 0.06, pillarsCenterZ);
+    amLogo.renderOrder = 1;
+    this.scene.add(amLogo);
+
+    // Sponsor board inlaid at the back of the tee pad, behind where the golfer stands.
+    const teeLogoWidth = COURSE.teePadWidth * 0.78;
+    const teeLogo = new THREE.Mesh(
+      new THREE.PlaneGeometry(teeLogoWidth, teeLogoWidth * (213 / 763)),
+      new THREE.MeshBasicMaterial({
+        map: (() => {
+          const tex = new THREE.TextureLoader().load('/neology_logo.png');
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.anisotropy = 8;
+          return tex;
+        })(),
+        transparent: true,
+        depthWrite: false,
+      })
+    );
+    teeLogo.rotation.x = -Math.PI / 2;
+    teeLogo.position.set(0, COURSE.teePadHeight + 0.175, COURSE.teeZ + COURSE.teePadDepth * 0.3);
+    teeLogo.renderOrder = 1;
+    this.scene.add(teeLogo);
 
     // Sits above the basket so it dresses the backstop without eating its contrast.
     const crestSize = 6;
@@ -338,9 +793,10 @@ export class Scene {
       roughness: 0.4,
       metalness: 0.7,
     });
+    const flagCount = 8;
 
-    for (let i = 1; i < 6; i++) {
-      const z = startZ + (length * i) / 6;
+    for (let i = 1; i <= flagCount; i++) {
+      const z = startZ + (length * i) / (flagCount + 1);
 
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 6, 8), poleMaterial);
       pole.position.set(x, y + 3, z);
@@ -370,7 +826,6 @@ export class Scene {
   private setupScoreboard(backTiers: number, tierDepth: number, tierRise: number) {
     const width = 78;
     const height = 39;
-    const tickerHeight = 6.5;
     const backDepth = tierDepth * backTiers + 3;
     const y = COURSE.backstopHeight + tierRise * backTiers + height / 2 + 10;
     const z = COURSE.arenaBackZ - backDepth - 3;
@@ -378,11 +833,6 @@ export class Scene {
     const board = createScoreboardMesh(width, height);
     board.position.set(0, y, z);
     this.scene.add(board);
-
-    const ticker = createTickerMesh(width, tickerHeight);
-    ticker.position.set(0, y + height / 2 + tickerHeight / 2 + 0.4, z);
-    this.scene.add(ticker);
-    this.tickerTexture = ticker.userData.scrollTexture as THREE.Texture;
 
     const legMaterial = new THREE.MeshStandardMaterial({
       color: 0x6f7681,
@@ -478,11 +928,11 @@ export class Scene {
     this.lastTime = time;
 
     this.updateCamera(dt);
+    this.updateWind(time);
+    this.updateClouds(dt);
+    this.updateAircraft(time, dt);
     this.updateFlags(time);
-
-    if (this.tickerTexture) {
-      this.tickerTexture.offset.x = (time * 0.06) % 1;
-    }
+    this.updateBeacon(time);
 
     this.renderer.render(this.scene, this.camera);
   }
@@ -492,31 +942,164 @@ export class Scene {
     const dx = from.x - pin.x;
     const dz = from.z - pin.z;
     const distance = Math.hypot(dx, dz) || 1;
-    const ux = dx / distance;
-    const uz = dz / distance;
 
     // Short shots pull the camera in tight; long drives sit further back.
     const back = THREE.MathUtils.clamp(distance * 0.42, 13, 34);
     const height = THREE.MathUtils.clamp(distance * 0.16, 5.5, 13);
 
-    // Keep the camera inside the arena; outside it the walls and stands block everything.
     const limitX = COURSE.arenaHalfWidth - 3;
-    const x = THREE.MathUtils.clamp(from.x + ux * back, -limitX, limitX);
-    const z = THREE.MathUtils.clamp(
-      from.z + uz * back,
-      COURSE.arenaBackZ + 8,
+    const minZ = COURSE.arenaBackZ + 6;
+    const maxZ = COURSE.arenaFrontZ - 4;
+    const inside = (x: number, z: number) => Math.abs(x) <= limitX && z >= minZ && z <= maxZ;
+
+    // Ideally straight behind the thrower. If that lands outside the arena, swing
+    // around them at the same radius rather than closing in, which would leave the
+    // golfer behind the camera.
+    const ideal = Math.atan2(dx, dz);
+    let angle = ideal;
+    let found = inside(from.x + Math.sin(ideal) * back, from.z + Math.cos(ideal) * back);
+
+    for (let step = 1; step <= 12 && !found; step++) {
+      for (const sign of [1, -1]) {
+        const candidate = ideal + (sign * step * Math.PI) / 12;
+        if (inside(from.x + Math.sin(candidate) * back, from.z + Math.cos(candidate) * back)) {
+          angle = candidate;
+          found = true;
+          break;
+        }
+      }
+    }
+
+    const x = from.x + Math.sin(angle) * back;
+    const z = from.z + Math.cos(angle) * back;
+
+    this.cameraGoal.set(
+      found ? x : THREE.MathUtils.clamp(x, -limitX, limitX),
+      found ? height : height + back * 0.5,
+      found ? z : THREE.MathUtils.clamp(z, minZ, maxZ)
+    );
+    this.lookGoal.set(from.x * 0.3 + pin.x * 0.7, 3.2, from.z * 0.3 + pin.z * 0.7);
+  }
+
+  /** Quick run down the hole from tee to basket, then back to the shot view. */
+  startFlyover(duration: number = 7) {
+    this.flyover = { t: 0, duration };
+  }
+
+  get isFlyingOver() {
+    return this.flyover !== null;
+  }
+
+  /** Starts following a disc that has just left the hand. */
+  beginChase(position: { x: number; y: number; z: number }) {
+    this.chase = {
+      position: new THREE.Vector3(position.x, position.y, position.z),
+      heading: new THREE.Vector3(0, 0, -1),
+      holdT: 0,
+      settled: false,
+    };
+  }
+
+  /** Feeds the disc's live position to the chase camera. */
+  updateChase(position: { x: number; y: number; z: number }) {
+    const chase = this.chase;
+    if (!chase || chase.settled) {
+      return;
+    }
+
+    const step = new THREE.Vector3(position.x - chase.position.x, 0, position.z - chase.position.z);
+
+    // Only re-aim once the disc has actually travelled, or the heading jitters.
+    if (step.lengthSq() > 0.0004) {
+      chase.heading.lerp(step.normalize(), 0.25).normalize();
+    }
+
+    chase.position.set(position.x, position.y, position.z);
+  }
+
+  /** Disc has come to rest; hold on the result, then hand back to the shot view. */
+  endChase() {
+    if (this.chase) {
+      this.chase.settled = true;
+      this.chase.holdT = 0;
+    }
+  }
+
+  get isCinematic() {
+    return this.flyover !== null || this.chase !== null;
+  }
+
+  private updateChaseCamera(dt: number): boolean {
+    const chase = this.chase;
+    if (!chase) {
+      return false;
+    }
+
+    const hold = 1.5;
+    if (chase.settled) {
+      chase.holdT += dt;
+    }
+    const holdProgress = chase.settled ? Math.min(chase.holdT / hold, 1) : 0;
+
+    // Once it lands, swing out to the side to present the result.
+    const swing = holdProgress * Math.PI * 0.85;
+    const back = THREE.MathUtils.lerp(15, 10, holdProgress);
+    const side = Math.sin(swing) * 9;
+    const lift = THREE.MathUtils.lerp(5, 3.4, holdProgress);
+
+    const { position, heading } = chase;
+    const limitX = COURSE.arenaHalfWidth - 3;
+
+    const goalX = THREE.MathUtils.clamp(
+      position.x - heading.x * back - heading.z * side,
+      -limitX,
+      limitX
+    );
+    const goalZ = THREE.MathUtils.clamp(
+      position.z - heading.z * back + heading.x * side,
+      COURSE.arenaBackZ + 6,
       COURSE.arenaFrontZ - 4
     );
+    const goalY = Math.max(position.y + lift, 2.4);
 
-    // If clamping pulled the camera in close, lift it so the shot still reads.
-    const planar = Math.hypot(x - from.x, z - from.z);
-    const lift = planar < back ? (back - planar) * 0.6 : 0;
+    // Looser follow in flight so the camera trails the disc instead of locking to it.
+    const k = 1 - Math.exp(-(chase.settled ? 3.4 : 6.5) * dt);
+    this.camera.position.lerp(new THREE.Vector3(goalX, goalY, goalZ), k);
+    this.lookNow.lerp(position, 1 - Math.exp(-9 * dt));
+    this.camera.lookAt(this.lookNow);
 
-    this.cameraGoal.set(x, height + lift, z);
-    this.lookGoal.set(from.x * 0.2 + pin.x * 0.8, 4, from.z * 0.2 + pin.z * 0.8);
+    if (chase.settled && holdProgress >= 1) {
+      this.chase = null;
+    }
+
+    return true;
   }
 
   private updateCamera(dt: number) {
+    if (this.flyover) {
+      this.flyover.t += dt;
+      const p = Math.min(this.flyover.t / this.flyover.duration, 1);
+      // Ease in and out so the run starts and finishes gently.
+      const eased = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+
+      const z = THREE.MathUtils.lerp(COURSE.teeZ + 26, COURSE.basketZ - 16, eased);
+      const height = 34 - Math.sin(eased * Math.PI) * 13;
+      const drift = Math.sin(eased * Math.PI * 2) * 9;
+
+      this.camera.position.set(drift, height, z);
+      this.lookNow.set(0, 3, Math.max(z - 70, COURSE.basketZ));
+      this.camera.lookAt(this.lookNow);
+
+      if (p >= 1) {
+        this.flyover = null;
+      }
+      return;
+    }
+
+    if (this.updateChaseCamera(dt)) {
+      return;
+    }
+
     if (this.lookNow.lengthSq() === 0) {
       this.camera.position.copy(this.cameraGoal);
       this.lookNow.copy(this.lookGoal);
@@ -531,8 +1114,13 @@ export class Scene {
   }
 
   private updateFlags(time: number) {
+    // The banner extends along the pivot's local +X, which a Y rotation of theta
+    // maps to (cos theta, -sin theta). Subtracting 90deg lines that up with the
+    // wind vector (sin h, cos h) so the flags stream the way the wind blows.
+    const heading = this.windHeading - Math.PI / 2;
+
     for (const { pivot, flag, phase } of this.flags) {
-      pivot.rotation.y = this.windHeading + Math.sin(time * 0.7 + phase) * 0.12;
+      pivot.rotation.y = heading + Math.sin(time * 0.7 + phase) * 0.12;
 
       const position = flag.geometry.attributes.position;
       for (let i = 0; i < position.count; i++) {

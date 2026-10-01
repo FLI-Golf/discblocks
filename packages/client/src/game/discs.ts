@@ -97,18 +97,22 @@ export const DISCS: Disc[] = [
   },
 ];
 
-export type ThrowStyleId = 'backhand' | 'forehand' | 'overhand';
+export type ThrowStyleId = 'backhand' | 'forehand' | 'overhand' | 'roller';
 
 export interface ThrowStyle {
   id: ThrowStyleId;
   name: string;
   hint: string;
+  /** Which golfer animation to play; a roller is thrown backhand. */
+  animation: 'backhand' | 'forehand' | 'overhand';
   /** Sign of the spin about Y; drives which way the disc fades. */
   spinSign: number;
   /** Multiplies the disc's speed rating. */
   powerScale: number;
   /** Extra launch angle, in radians. */
   loftBias: number;
+  /** Released on edge to run along the ground. */
+  roller?: boolean;
 }
 
 export const THROW_STYLES: ThrowStyle[] = [
@@ -116,6 +120,7 @@ export const THROW_STYLES: ThrowStyle[] = [
     id: 'backhand',
     name: 'Backhand',
     hint: 'Most power. Finishes left.',
+    animation: 'backhand',
     spinSign: -1,
     powerScale: 1,
     loftBias: 0,
@@ -124,6 +129,7 @@ export const THROW_STYLES: ThrowStyle[] = [
     id: 'forehand',
     name: 'Forehand',
     hint: 'Flick. Finishes right.',
+    animation: 'forehand',
     spinSign: 1,
     powerScale: 0.92,
     loftBias: 0.02,
@@ -132,9 +138,20 @@ export const THROW_STYLES: ThrowStyle[] = [
     id: 'overhand',
     name: 'Overhand',
     hint: 'Tomahawk. Steep, over obstacles.',
+    animation: 'overhand',
     spinSign: 1,
     powerScale: 0.82,
     loftBias: 0.3,
+  },
+  {
+    id: 'roller',
+    name: 'Roller',
+    hint: 'On edge. Runs along the ground, under trouble.',
+    animation: 'backhand',
+    spinSign: -1,
+    powerScale: 0.88,
+    loftBias: -0.05,
+    roller: true,
   },
 ];
 

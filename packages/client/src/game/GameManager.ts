@@ -24,6 +24,8 @@ import {
   createAdCylinderMesh,
   createNetMesh,
   createCylinderMesh,
+  createCactusMesh,
+  createMushroomCapMesh,
   createBandMesh,
   createTorusMesh,
   createCapsuleMesh,
@@ -31,8 +33,10 @@ import {
 import { Golfer } from '@/rendering/Golfer';
 import { getPhysicsWorld } from '@/physics/init';
 import { unregisterPhysicsBody, entityToRigidBody } from '@/physics/PhysicsSystem';
-import { COURSE } from './course';
+import { COURSE, BEACON_FROM_UNITS } from './course';
 import { Hole } from './hole';
+import { GROUP } from './players';
+import { playChains } from './audio';
 import type { Disc, ThrowSelection, ThrowStyle } from './discs';
 
 const BASKET = {
@@ -61,11 +65,14 @@ const WALL_COLOR = 0x1f3a5f;
 const BACKSTOP_COLOR = 0xdfe7f0;
 const PILLAR_COLOR = 0xeef1f5;
 const PILLAR_BASE_COLOR = 0x1f3a5f;
+const DISC_RADIUS = 0.28;
+/** Below this the disc is touching down and ground drag takes over. */
+const GROUND_CONTACT_Y = DISC_RADIUS + 0.4;
 
 export class GameManager {
   private entities: number[] = [];
   private ballTimers = new Set<ReturnType<typeof setTimeout>>();
-  private golfer = new Golfer();
+  private golfers = GROUP.map((player) => new Golfer(player.look));
   private pendingThrow: {
     direction: { x: number; y: number; z: number };
     selection: ThrowSelection;
@@ -77,6 +84,7 @@ export class GameManager {
     playerIndex: number;
     airborne: number;
     settleTimer: number;
+    isRoller: boolean;
   } | null = null;
   private releasePoint = new THREE.Vector3();
 
@@ -87,8 +95,14 @@ export class GameManager {
   onHoleChange: (() => void) | null = null;
 
   constructor() {
+    for (const golfer of this.golfers) {
+      addSceneObject(golfer.root);
+    }
     this.moveGolferToTurn();
-    addSceneObject(this.golfer.root);
+  }
+
+  private get golfer(): Golfer {
+    return this.golfers[this.hole.currentPlayerIndex];
   }
 
   reset() {
@@ -160,7 +174,31 @@ export class GameManager {
       );
       addMesh(base, createCylinderMesh(COURSE.pillarRadius * 1.18, 0.7, PILLAR_BASE_COLOR));
       this.entities.push(base);
+
+      if (!pillar.cap) {
+        return;
+      }
+
+      // Wide collider, so the cap genuinely blocks the overhead line.
+      const cap = createStaticCylinder(
+        { x: pillar.x, y: COURSE.pillarHeight, z: pillar.z },
+        COURSE.capRadius,
+        COURSE.capRimHeight
+      );
+      addMesh(cap, createMushroomCapMesh(COURSE.capRadius, COURSE.capRimHeight, i * 3));
+      this.entities.push(cap);
     });
+
+    for (const cactus of COURSE.cacti) {
+      const radius = cactus.height * 0.085;
+      const entity = createStaticCylinder(
+        { x: cactus.x, y: cactus.height / 2, z: cactus.z },
+        radius,
+        cactus.height
+      );
+      addMesh(entity, createCactusMesh(cactus.height, radius, cactus.arms));
+      this.entities.push(entity);
+    }
   }
 
   private createArena() {
@@ -208,7 +246,7 @@ export class GameManager {
         height: COURSE.wallHeight,
         color: WALL_COLOR,
         ads: true,
-        netted: false,
+        netted: true,
       },
     ];
 
@@ -240,6 +278,14 @@ export class GameManager {
       addMesh(net, createNetMesh(w.width, COURSE.netHeight, w.depth));
       this.entities.push(net);
     }
+
+    // Canopy net over the whole arena. No mesh: it is the overhead netting you
+    // cannot see from inside, and it stops a lofted throw reaching the stands.
+    const ceiling = createStaticBox(
+      { x: 0, y: COURSE.wallHeight + COURSE.netHeight + 0.3, z: centerZ },
+      { x: hw * 2 + t, y: 0.6, z: length }
+    );
+    this.entities.push(ceiling);
   }
 
   /** Freestanding boards along a wall, separated by gaps that show the fence behind. */
@@ -392,10 +438,21 @@ export class GameManager {
       return false;
     }
 
+    if (getScene()?.isCinematic) {
+      return false;
+    }
+
+    // Cap the launch angle so a high click cannot loft the disc into the canopy net.
+    const aim = {
+      x: THREE.MathUtils.clamp(direction.x, -0.45, 0.45),
+      y: THREE.MathUtils.clamp(direction.y, -0.3, 0.12),
+      z: direction.z,
+    };
+
     this.hole.recordThrow();
-    this.pendingThrow = { direction, selection };
+    this.pendingThrow = { direction: aim, selection };
     this.golfer.setDiscColor(selection.disc.color);
-    this.golfer.setHeading(Math.atan2(-direction.x, 1) * 0.35);
+    this.golfer.setHeading(Math.atan2(-aim.x, 1) * 0.35);
     this.golfer.play(this.animationFor(selection));
     this.onHoleChange?.();
     return true;
@@ -404,11 +461,18 @@ export class GameManager {
   /** Close to the pin the golfer putts, whatever style the bag has selected. */
   private animationFor(selection: ThrowSelection) {
     const state = this.hole.current;
-    return state && this.hole.isPutting(state) ? 'putt' : selection.style.id;
+    return state && this.hole.isPutting(state) ? 'putt' : selection.style.animation;
   }
 
   update(dt: number) {
-    if (this.golfer.update(dt) && this.pendingThrow) {
+    let released = false;
+    for (const golfer of this.golfers) {
+      if (golfer.update(dt)) {
+        released = true;
+      }
+    }
+
+    if (released && this.pendingThrow) {
       this.releaseDisc(this.pendingThrow.direction, this.pendingThrow.selection);
       this.pendingThrow = null;
     }
@@ -433,6 +497,13 @@ export class GameManager {
 
     active.airborne += dt;
 
+    // Camera tracks the disc live, as the throw happens.
+    getScene()?.updateChase({
+      x: Transform.x[active.entity],
+      y: Transform.y[active.entity],
+      z: Transform.z[active.entity],
+    });
+
     const velocity = body.linvel();
     const horizontal = Math.hypot(velocity.x, velocity.z);
     const speed = Math.hypot(horizontal, velocity.y);
@@ -453,7 +524,29 @@ export class GameManager {
       return;
     }
 
-    if (horizontal < 0.5) {
+    // On the deck a flat disc grabs and stops quickly; a roller keeps running.
+    if (Transform.y[active.entity] < GROUND_CONTACT_Y) {
+      const drag = Math.exp(-(active.isRoller ? 0.5 : 4.5) * dt);
+      body.setLinvel({ x: velocity.x * drag, y: velocity.y, z: velocity.z * drag }, true);
+      return;
+    }
+
+    // The chains and tray swallow a disc's energy, so it drops in rather than
+    // pinging back out of the basket.
+    if (this.inBasket(active.entity)) {
+      const caught = Math.exp(-7 * dt);
+      body.setLinvel(
+        {
+          x: velocity.x * caught,
+          y: velocity.y * caught,
+          z: velocity.z * caught,
+        },
+        true
+      );
+      return;
+    }
+
+    if (horizontal < 0.5 || active.isRoller) {
       return;
     }
 
@@ -484,7 +577,10 @@ export class GameManager {
 
   private releaseDisc(direction: { x: number; y: number; z: number }, selection: ThrowSelection) {
     const { disc, style, angle, power } = selection;
-    const discRadius = 0.28;
+    const current = this.hole.current;
+    const aimX = direction.x;
+    const aimY = direction.y;
+    const discRadius = DISC_RADIUS;
     // Drivers are thinner and sharper-edged than putters.
     const thickness = 0.085 - disc.speed * 0.003;
 
@@ -501,26 +597,45 @@ export class GameManager {
     addMesh(entity, createDiscMesh(discRadius, thickness, disc.color));
 
     // Speed rating sets the launch velocity; glide trades drop for carry.
-    const launch = COURSE.throwSpeed * (0.52 + disc.speed * 0.045) * style.powerScale * power;
-    const loft = (COURSE.throwLoft * (0.75 + disc.glide * 0.07) + style.loftBias * launch) * power;
+    let launch = COURSE.throwSpeed * (0.52 + disc.speed * 0.045) * style.powerScale * power;
+    let loft = (COURSE.throwLoft * (0.75 + disc.glide * 0.07) + style.loftBias * launch) * power;
+
+    // A putt is thrown to the pin, not at drive power. Solve the launch speed for
+    // the range that is actually left, or every putt sails past the basket.
+    const putting = current ? this.hole.isPutting(current) : false;
+    if (putting && current) {
+      const remaining = this.hole.distanceToPin(current);
+      const loftRatio = 0.38;
+      launch = Math.sqrt((remaining * 9.81) / (2 * loftRatio)) * (0.72 + power * 0.3);
+      loft = launch * loftRatio;
+    }
 
     const body = entityToRigidBody.get(entity);
     if (body) {
+      // Aim is scaled on its own, not by launch speed, so fast discs are not
+      // disproportionately sensitive to where the shot was clicked.
       body.setLinvel(
         {
-          x: direction.x * launch + Math.sin(angle.bank) * launch * 0.12,
-          y: direction.y * launch + loft,
+          x: aimX * launch * 0.45 + Math.sin(angle.bank) * launch * 0.08,
+          y: style.roller ? Math.min(aimY * 10 + loft * 0.2, 2) : aimY * 22 + loft,
           z: -launch,
         },
         true
       );
 
-      // Spin direction decides which way the disc fades; faster discs are thrown harder.
-      body.setAngvel({ x: 0, y: style.spinSign * (26 + disc.speed * 2.4) * power, z: 0 }, true);
-      body.setRotation(
-        { x: 0, y: 0, z: Math.sin(angle.bank / 2) * style.spinSign, w: Math.cos(angle.bank / 2) },
-        true
-      );
+      if (style.roller) {
+        // Stand the disc on edge, axis across the line of travel, and spin it up
+        // to rolling speed so it runs along the ground instead of skipping.
+        body.setRotation({ x: 0, y: 0, z: Math.sin(Math.PI / 4), w: Math.cos(Math.PI / 4) }, true);
+        body.setAngvel({ x: -launch / discRadius, y: 0, z: 0 }, true);
+      } else {
+        // Spin direction decides which way the disc fades; faster discs are thrown harder.
+        body.setAngvel({ x: 0, y: style.spinSign * (26 + disc.speed * 2.4) * power, z: 0 }, true);
+        body.setRotation(
+          { x: 0, y: 0, z: Math.sin(angle.bank / 2) * style.spinSign, w: Math.cos(angle.bank / 2) },
+          true
+        );
+      }
     }
 
     const playerIndex = this.hole.currentPlayerIndex;
@@ -539,8 +654,11 @@ export class GameManager {
       playerIndex,
       airborne: 0,
       settleTimer: 0,
+      isRoller: style.roller === true,
     };
     this.entities.push(entity);
+
+    getScene()?.beginChase(this.releasePoint);
   }
 
   /** Records where the disc stopped, whether it holed out, and passes the honour on. */
@@ -561,6 +679,7 @@ export class GameManager {
 
     if (holed) {
       this.removeEntity(active.entity);
+      playChains();
     } else {
       this.lieDiscs.set(active.playerIndex, active.entity);
     }
@@ -568,31 +687,75 @@ export class GameManager {
     this.hole.recordResult(lie, holed);
     this.moveGolferToTurn();
     this.onHoleChange?.();
+
+    // Holds on the result, then releases to the next player's shot view.
+    getScene()?.endChase();
   }
 
   /** Inside the tray walls and below the rim counts as made. */
   private isHoled(position: { x: number; y: number; z: number }): boolean {
     const radial = Math.hypot(position.x, position.z - COURSE.basketZ);
     return (
-      radial < BASKET.trayRadius * 0.95 &&
-      position.y > BASKET.trayFloorY - 0.3 &&
-      position.y < BASKET.rimY
+      radial < BASKET.trayRadius && position.y > BASKET.trayFloorY - 0.5 && position.y < BASKET.rimY
+    );
+  }
+
+  /** True while the disc is inside the basket mouth. */
+  private inBasket(entity: number): boolean {
+    const radial = Math.hypot(Transform.x[entity], Transform.z[entity] - COURSE.basketZ);
+    return (
+      radial < BASKET.trayRadius &&
+      Transform.y[entity] > BASKET.trayFloorY - 0.5 &&
+      Transform.y[entity] < BASKET.rimY
     );
   }
 
   private moveGolferToTurn() {
-    const state = this.hole.current;
     const pin = { x: 0, z: COURSE.basketZ };
+    const current = this.hole.current;
+    const active = current ? this.hole.currentPlayerIndex : -1;
+    const tee = { x: 0, y: COURSE.teePadHeight + 0.165, z: COURSE.teeZ };
 
-    if (!state || !state.lie) {
-      const tee = { x: 0, y: COURSE.teePadHeight + 0.165, z: COURSE.teeZ };
-      this.golfer.setPosition(tee.x, tee.y, tee.z);
-      getScene()?.frameShot(tee, pin);
-      return;
+    this.hole.states.forEach((state, i) => {
+      const golfer = this.golfers[i];
+
+      if (i === active) {
+        return;
+      }
+
+      // Anyone who has already played is still walking up, so showing them beside
+      // their disc reads as teleporting. Only players yet to drive are on show.
+      golfer.setVisible(!state.holed && !state.lie);
+
+      if (state.lie) {
+        golfer.setPosition(state.lie.x, 0, state.lie.z);
+        return;
+      }
+
+      // Still waiting to drive: stand off the side of the tee pad and watch.
+      const slot = active >= 0 && i > active ? i - 1 : i;
+      const side = slot % 2 === 0 ? -1 : 1;
+      const rank = Math.floor(slot / 2);
+      golfer.setPosition(
+        side * (COURSE.teePadWidth / 2 + 2.2 + rank * 2.4),
+        0,
+        COURSE.teeZ + 2.5 + rank * 1.5
+      );
+    });
+
+    // The thrower is placed last and unconditionally, so nothing in the loop above
+    // can leave the player whose turn it is hidden.
+    if (current) {
+      const golfer = this.golfers[active];
+      const spot = current.lie ?? tee;
+      golfer.setPosition(spot.x, current.lie ? 0 : tee.y, spot.z);
+      golfer.setVisible(true);
     }
 
-    this.golfer.setPosition(state.lie.x, 0, state.lie.z);
-    getScene()?.frameShot({ x: state.lie.x, y: 0, z: state.lie.z }, pin);
+    const from = current?.lie ?? tee;
+    const scene = getScene();
+    scene?.frameShot({ x: from.x, y: 0, z: from.z }, pin);
+    scene?.setBeaconVisible(Math.hypot(from.x - pin.x, from.z - pin.z) > BEACON_FROM_UNITS);
   }
 
   private removeEntity(entity: number) {

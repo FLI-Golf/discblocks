@@ -1,12 +1,30 @@
+export interface GolferLook {
+  jersey: number;
+  /** Sleeves and trim. */
+  accent: number;
+  shorts: number;
+  skin: number;
+  hair: number;
+  hairStyle: 'ponytail' | 'short' | 'cap';
+  /** Height and bulk multiplier. */
+  build: number;
+}
+
 export interface Player {
   id: string;
   name: string;
   team: string;
   teamLogo: string;
   avatar: string;
+  look: GolferLook;
   /** Strokes relative to par for the round. */
   score: number;
 }
+
+// Both crests are red/black/white, so the kits split on jersey base: Ace Makers
+// play in white with red trim, Disc Dynasty in red with black.
+const ACE_MAKERS_KIT = { jersey: 0xf2f4f8, accent: 0xe02b20, shorts: 0x1a1a1e };
+const DISC_DYNASTY_KIT = { jersey: 0xd8232a, accent: 0x14141a, shorts: 0x14141a };
 
 const AVATARS = {
   simon:
@@ -31,6 +49,13 @@ export const GROUP: Player[] = [
     team: 'Ace Makers',
     teamLogo: TEAM_LOGOS.aceMakers,
     avatar: AVATARS.simon,
+    look: {
+      ...ACE_MAKERS_KIT,
+      skin: 0xf0c8a0,
+      hair: 0xc9a227,
+      hairStyle: 'cap',
+      build: 1.04,
+    },
     score: 1,
   },
   {
@@ -39,6 +64,13 @@ export const GROUP: Player[] = [
     team: 'Ace Makers',
     teamLogo: TEAM_LOGOS.aceMakers,
     avatar: AVATARS.kat,
+    look: {
+      ...ACE_MAKERS_KIT,
+      skin: 0xeec19a,
+      hair: 0x6b4a2f,
+      hairStyle: 'ponytail',
+      build: 0.93,
+    },
     score: 0,
   },
   {
@@ -47,6 +79,13 @@ export const GROUP: Player[] = [
     team: 'Disc Dynasty',
     teamLogo: TEAM_LOGOS.discDynasty,
     avatar: AVATARS.chris,
+    look: {
+      ...DISC_DYNASTY_KIT,
+      skin: 0x7a4f31,
+      hair: 0x1b1310,
+      hairStyle: 'short',
+      build: 1.08,
+    },
     score: -1,
   },
   {
@@ -55,6 +94,13 @@ export const GROUP: Player[] = [
     team: 'Disc Dynasty',
     teamLogo: TEAM_LOGOS.discDynasty,
     avatar: AVATARS.paige,
+    look: {
+      ...DISC_DYNASTY_KIT,
+      skin: 0xd9a877,
+      hair: 0x8a6236,
+      hairStyle: 'ponytail',
+      build: 0.96,
+    },
     score: -3,
   },
 ];

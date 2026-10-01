@@ -211,8 +211,8 @@ export function createDynamicDisc(
 
   const colliderDesc = ColliderDesc.cylinder(thickness / 2, radius)
     .setMass(mass)
-    .setRestitution(0.25)
-    .setFriction(0.5);
+    .setRestitution(0.1)
+    .setFriction(0.6);
 
   physicsWorld.createCollider(colliderDesc, body);
 
