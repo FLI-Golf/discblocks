@@ -38,7 +38,7 @@ import {
 } from '@/rendering/Golfer';
 import { getPhysicsWorld } from '@/physics/init';
 import { unregisterPhysicsBody, entityToRigidBody } from '@/physics/PhysicsSystem';
-import { COURSE, BEACON_FROM_UNITS } from './course';
+import { COURSE, BEACON_FROM_UNITS, headingTowardBasket } from './course';
 import { Hole } from './hole';
 import { GROUP } from './players';
 import { playChains } from './audio';
@@ -133,6 +133,9 @@ export class GameManager {
           outfit: { ...base.outfit, ...(saved.appearance.outfit ?? {}) },
           face: { ...base.face, ...(saved.appearance.face ?? {}) },
         };
+        if (saved.appearance.avatarModelId) {
+          player.look.appearance.avatarModelId = saved.appearance.avatarModelId;
+        }
         player.look.hairStyle = player.look.appearance.hairStyle;
         player.look.hair = player.look.appearance.hairColor;
         player.look.skin = player.look.appearance.skinTone;
@@ -184,6 +187,9 @@ export class GameManager {
       outfit: { ...current.outfit, ...(appearance.outfit ?? {}) },
       face: { ...current.face, ...(appearance.face ?? {}) },
     };
+    if (appearance.avatarModelId) {
+      merged.avatarModelId = appearance.avatarModelId;
+    }
 
     player.look.appearance = merged;
     player.look.hairStyle = merged.hairStyle;
@@ -872,6 +878,7 @@ export class GameManager {
 
       if (state.lie) {
         golfer.setPosition(state.lie.x, 0, state.lie.z);
+        golfer.setHeading(headingTowardBasket({ x: state.lie.x, z: state.lie.z }));
         return;
       }
 
@@ -879,11 +886,10 @@ export class GameManager {
       const slot = active >= 0 && i > active ? i - 1 : i;
       const side = slot % 2 === 0 ? -1 : 1;
       const rank = Math.floor(slot / 2);
-      golfer.setPosition(
-        side * (COURSE.teePadWidth / 2 + 2.2 + rank * 2.4),
-        0,
-        COURSE.teeZ + 2.5 + rank * 1.5
-      );
+      const x = side * (COURSE.teePadWidth / 2 + 2.2 + rank * 2.4);
+      const z = COURSE.teeZ + 2.5 + rank * 1.5;
+      golfer.setPosition(x, 0, z);
+      golfer.setHeading(headingTowardBasket({ x, z }));
     });
 
     // The thrower is placed last and unconditionally, so nothing in the loop above
@@ -892,6 +898,7 @@ export class GameManager {
       const golfer = this.golfers[active];
       const spot = current.lie ?? tee;
       golfer.setPosition(spot.x, current.lie ? 0 : tee.y, spot.z);
+      golfer.setHeading(headingTowardBasket({ x: spot.x, z: spot.z }));
       golfer.setVisible(true);
     }
 

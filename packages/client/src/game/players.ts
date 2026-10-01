@@ -1,6 +1,7 @@
 import {
   BODY_PROFILES,
   buildCharacterAppearance,
+  type AvatarModelId,
   type BodyProfileId,
   type CharacterAppearance,
   type HairStyle,
@@ -51,6 +52,7 @@ const TEAM_LOGOS = {
 };
 
 function createPlayerAppearance(config: {
+  avatarModelId?: AvatarModelId;
   bodyProfile: BodyProfileId;
   hairStyle: HairStyle;
   hairColor: number;
@@ -65,6 +67,8 @@ function createPlayerAppearance(config: {
   face?: Partial<CharacterAppearance['face']>;
 }): CharacterAppearance {
   return buildCharacterAppearance({
+    avatarModelId:
+      config.avatarModelId ?? (config.bodyProfile === 'athleticFemale' ? 'female' : 'male'),
     bodyProfile: config.bodyProfile,
     profile: BODY_PROFILES[config.bodyProfile],
     hairStyle: config.hairStyle,
@@ -107,13 +111,14 @@ export const GROUP: Player[] = [
     look: {
       ...ACE_MAKERS_KIT,
       skin: ACE_MAKERS_KIT.skin,
-      hair: 0xc9a227,
+      hair: 0x3b241b,
       hairStyle: 'sidePart',
       build: 1.04,
       appearance: createPlayerAppearance({
+        avatarModelId: 'male',
         bodyProfile: 'athleticMale',
         hairStyle: 'sidePart',
-        hairColor: 0xc9a227,
+        hairColor: 0x3b241b,
         skinTone: ACE_MAKERS_KIT.skin,
         shirtColor: ACE_MAKERS_KIT.jersey,
         shortsColor: ACE_MAKERS_KIT.shorts,
@@ -137,6 +142,7 @@ export const GROUP: Player[] = [
       hairStyle: 'bun',
       build: 0.93,
       appearance: createPlayerAppearance({
+        avatarModelId: 'female',
         bodyProfile: 'athleticFemale',
         hairStyle: 'bun',
         hairColor: 0x6b4a2f,

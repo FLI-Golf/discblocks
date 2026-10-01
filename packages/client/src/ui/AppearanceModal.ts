@@ -3,6 +3,7 @@ import {
   BODY_PROFILES,
   DEFAULT_GOLFER_APPEARANCE,
   FACE_PRESETS,
+  Face,
   Golfer,
   type AccessorySlot,
   type BodyProfileId,
@@ -30,16 +31,16 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function hexFromNumber(value: number): string {
-  return `#${value.toString(16).padStart(6, '0')}`;
-}
-
 export class AppearanceModal {
   private readonly root: HTMLDivElement;
   private readonly overlay: HTMLDivElement;
   private readonly previewHost: HTMLDivElement;
+  private readonly previewStatus: HTMLDivElement;
   private readonly controlsWrap: HTMLDivElement;
-  private readonly preview: Golfer;
+  private readonly isolatedFace: Face;
+  private readonly isolatedFaceRoot: THREE.Group;
+  private readonly isolatedFaceBadge: HTMLDivElement;
+  private preview!: Golfer;
   private readonly renderer:
     | THREE.WebGLRenderer
     | {
@@ -73,7 +74,26 @@ export class AppearanceModal {
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     this.initialAppearance = { ...options.initialAppearance };
     this.initialAccessories = { ...options.initialAccessories };
-    this.draft = { ...options.initialAppearance };
+    this.draft = {
+      ...options.initialAppearance,
+      avatarModelId: options.initialAppearance.avatarModelId ?? 'male',
+      facePreset: options.initialAppearance.facePreset ?? 'male',
+      face: {
+        ...options.initialAppearance.face,
+        brow: options.initialAppearance.face?.brow ?? FACE_PRESETS.male.brow,
+        nose: options.initialAppearance.face?.nose ?? FACE_PRESETS.male.nose,
+        eyeSpacing: options.initialAppearance.face?.eyeSpacing ?? FACE_PRESETS.male.eyeSpacing,
+        mouth: options.initialAppearance.face?.mouth ?? FACE_PRESETS.male.mouth,
+        beard: options.initialAppearance.face?.beard ?? FACE_PRESETS.male.beard,
+        stubble: options.initialAppearance.face?.stubble ?? FACE_PRESETS.male.stubble,
+      },
+      profile: {
+        ...options.initialAppearance.profile,
+        headScale: options.initialAppearance.profile?.headScale ?? FACE_PRESETS.male.headScale,
+        jawWidth: options.initialAppearance.profile?.jawWidth ?? FACE_PRESETS.male.jawWidth,
+        chinShape: options.initialAppearance.profile?.chinShape ?? FACE_PRESETS.male.chinShape,
+      },
+    };
     this.accessories = { ...options.initialAccessories };
     this.view = 'face';
     this.onApply = options.onApply;
@@ -105,7 +125,28 @@ export class AppearanceModal {
 
     const title = document.createElement('div');
     title.className = 'appearance-modal-title';
-    title.innerHTML = `<span>${options.mode === 'face' ? 'Face Builder' : 'Change Look'}</span><strong>${options.playerName}</strong>`;
+
+    const titleLabel = document.createElement('span');
+    titleLabel.textContent = options.mode === 'face' ? 'Face Builder' : 'Change Look';
+
+    const versionBadge = document.createElement('span');
+    versionBadge.className = 'appearance-version-badge';
+    versionBadge.textContent = 'Face DBG v2';
+
+    const titleRow = document.createElement('div');
+    titleRow.className = 'appearance-modal-title-row';
+
+    const playerName = document.createElement('strong');
+    playerName.textContent = options.playerName;
+
+    this.isolatedFaceBadge = document.createElement('div');
+    this.isolatedFaceBadge.className = 'appearance-isolated-face-badge';
+    this.isolatedFaceBadge.textContent = 'ISOLATED FACE ACTIVE';
+    this.isolatedFaceBadge.hidden = true;
+
+    const presetGroup = this.buildHeaderPresetButtons();
+    titleRow.append(playerName, presetGroup);
+    title.append(titleLabel, versionBadge, this.isolatedFaceBadge, titleRow);
 
     const close = document.createElement('button');
     close.type = 'button';
@@ -117,6 +158,12 @@ export class AppearanceModal {
 
     this.previewHost = document.createElement('div');
     this.previewHost.className = 'appearance-preview-host';
+
+    this.previewStatus = document.createElement('div');
+    this.previewStatus.className = 'appearance-preview-status';
+    this.previewStatus.textContent = 'Loading avatar…';
+    this.previewStatus.hidden = false;
+    this.previewHost.appendChild(this.previewStatus);
 
     this.controlsWrap = document.createElement('div');
     this.controlsWrap.className = 'appearance-controls';
@@ -231,8 +278,8 @@ export class AppearanceModal {
     this.scene.add(ground);
 
     this.camera = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
-    this.camera.position.set(0, 0.35, 2.8);
-    this.camera.lookAt(0, 0.2, 0);
+    this.camera.position.set(0, 0.7, 3.15);
+    this.camera.lookAt(0, 0.38, 0);
 
     const renderCanvas = document.createElement('canvas');
     renderCanvas.className = 'appearance-preview-canvas';
@@ -272,12 +319,38 @@ export class AppearanceModal {
       this.renderer.setClearColor(0x000000, 0);
     }
 
+    this.isolatedFace = new Face({
+      ...FACE_PRESETS.male,
+      skinTone: DEFAULT_GOLFER_APPEARANCE.skinTone,
+      hairColor: DEFAULT_GOLFER_APPEARANCE.hairColor,
+      hairStyle: DEFAULT_GOLFER_APPEARANCE.hairStyle,
+      headScale: DEFAULT_GOLFER_APPEARANCE.profile.headScale,
+      jawWidth: DEFAULT_GOLFER_APPEARANCE.profile.jawWidth,
+      chinShape: DEFAULT_GOLFER_APPEARANCE.profile.chinShape,
+      brow: DEFAULT_GOLFER_APPEARANCE.face.brow,
+      nose: DEFAULT_GOLFER_APPEARANCE.face.nose,
+      eyeSpacing: DEFAULT_GOLFER_APPEARANCE.face.eyeSpacing,
+      mouth: DEFAULT_GOLFER_APPEARANCE.face.mouth,
+      beard: DEFAULT_GOLFER_APPEARANCE.face.beard,
+      stubble: DEFAULT_GOLFER_APPEARANCE.face.stubble,
+    });
+    this.isolatedFaceRoot = this.isolatedFace.root;
+    this.isolatedFaceRoot.visible = false;
+    this.isolatedFaceRoot.position.set(0, 0.1, 0);
+    this.isolatedFaceRoot.scale.set(1, 1, 1);
+    this.scene.add(this.isolatedFaceRoot);
+
     this.preview = new Golfer(this.draft);
+    this.preview.setAvatarStateListener((status, message) => {
+      this.previewStatus.textContent = message;
+      this.previewStatus.hidden = status === 'loaded';
+    });
     this.preview.root.rotation.set(0, 0, 0);
-    this.preview.root.position.y = -0.72;
-    this.preview.root.scale.setScalar(1.9);
+    this.preview.root.position.y = -0.62;
+    this.preview.root.scale.setScalar(1.55);
     this.scene.add(this.preview.root);
 
+    this.clearLegacyDiagnosticsState();
     this.bindPreviewInteractivity(renderCanvas);
     this.bindKeyboard();
     this.syncDraftControls();
@@ -294,50 +367,13 @@ export class AppearanceModal {
     const panel = document.createElement('div');
     panel.className = 'appearance-control-groups';
 
-    if (this.view === 'face') {
-      panel.append(
-        this.buildFacePresetToggle(),
-        this.colorRow('Skin tone', 'skinTone'),
-        this.rangeRow('Head shape', 'headScale', 0.75, 1.4, 0.9, 0.05),
-        this.rangeRow('Jaw width', 'jawWidth', 0.7, 1.6, 0.95, 0.05),
-        this.rangeRow('Chin shape', 'chinShape', 0.5, 1.5, 0.9, 0.05),
-        this.rangeRow('Eye spacing', 'eyeSpacing', 0.2, 1.1, 0.6, 0.05),
-        this.rangeRow('Brow shape', 'brow', 0.1, 1.1, 0.5, 0.05),
-        this.rangeRow('Nose shape', 'nose', 0.2, 1.2, 0.55, 0.05),
-        this.rangeRow('Mouth width', 'mouth', 0.2, 1.2, 0.55, 0.05),
-        this.selectRow('Hair style', 'hairStyle', [
-          'shortCrop',
-          'sidePart',
-          'undercut',
-          'buzzCut',
-          'ponytail',
-          'bun',
-          'bald',
-        ]),
-        this.colorRow('Hair color', 'hairColor'),
-        this.rangeRow('Beard', 'beard', 0, 1, 0, 0.05),
-        this.rangeRow('Stubble', 'stubble', 0, 1, 0, 0.05)
-      );
-      return panel;
-    }
-
     panel.append(
+      this.selectRow('Avatar model', 'avatarModelId', ['male', 'female']),
       this.selectRow('Body preset', 'bodyProfile', [
         'athleticMale',
         'athleticFemale',
         'neutralLean',
       ]),
-      this.rangeRow('Shoulder width', 'shoulderWidth', 0.7, 1.5, 1, 0.05),
-      this.rangeRow('Torso length', 'torsoLength', 0.7, 1.35, 1, 0.05),
-      this.rangeRow('Torso taper', 'torsoTaper', 0.5, 1.3, 0.9, 0.05),
-      this.rangeRow('Hip width', 'hipWidth', 0.6, 1.45, 1, 0.05),
-      this.rangeRow('Arm thickness', 'armThickness', 0.7, 1.5, 1, 0.05),
-      this.rangeRow('Leg length', 'legLength', 0.7, 1.35, 1, 0.05),
-      this.rangeRow('Head scale', 'headScale', 0.8, 1.4, 1, 0.05),
-      this.colorRow('Shirt color', 'shirtColor'),
-      this.colorRow('Shorts color', 'shortsColor'),
-      this.colorRow('Shoe color', 'shoeColor'),
-      this.colorRow('Accent color', 'accentColor'),
       this.selectRow('Hair style', 'hairStyle', [
         'shortCrop',
         'sidePart',
@@ -348,23 +384,26 @@ export class AppearanceModal {
         'bald',
       ])
     );
+
     return panel;
   }
 
-  private buildFacePresetToggle(): HTMLDivElement {
-    const row = document.createElement('div');
-    row.className = 'appearance-preset-toggle';
+  private clearLegacyDiagnosticsState() {
+    this.isolatedFaceRoot.visible = false;
+    this.isolatedFaceBadge.hidden = true;
+    if (this.preview) {
+      this.preview.root.visible = true;
+    }
+  }
 
-    const label = document.createElement('span');
-    label.textContent = 'Starting face';
+  private buildHeaderPresetButtons(): HTMLDivElement {
+    const group = document.createElement('div');
+    group.className = 'appearance-header-preset-group';
 
-    const toggle = document.createElement('div');
-    toggle.className = 'appearance-preset-options';
-
-    (['male', 'female', 'neutral'] as FacePresetId[]).forEach((preset) => {
+    (['male', 'female'] as FacePresetId[]).forEach((preset) => {
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'appearance-preset-button';
+      button.className = 'appearance-header-preset';
       button.dataset.preset = preset;
       button.textContent = preset.charAt(0).toUpperCase() + preset.slice(1);
       button.setAttribute('aria-pressed', String(this.draft.facePreset === preset));
@@ -372,16 +411,30 @@ export class AppearanceModal {
       button.addEventListener('click', () => {
         this.applyFacePreset(preset);
       });
-      toggle.appendChild(button);
+      group.appendChild(button);
     });
 
-    row.append(label, toggle);
-    return row;
+    return group;
+  }
+
+  private updateHeaderPresetButtons() {
+    const group = this.root.querySelector('.appearance-header-preset-group');
+    if (!group) {
+      return;
+    }
+
+    group.querySelectorAll<HTMLButtonElement>('.appearance-header-preset').forEach((button) => {
+      const preset = button.dataset.preset as FacePresetId | undefined;
+      const isSelected = preset === this.draft.facePreset;
+      button.setAttribute('aria-pressed', String(isSelected));
+      button.classList.toggle('is-selected', isSelected);
+    });
   }
 
   private applyFacePreset(preset: FacePresetId) {
     const next = { ...FACE_PRESETS[preset] };
     this.draft.facePreset = preset;
+    this.draft.avatarModelId = preset === 'female' ? 'female' : 'male';
     this.draft.skinTone = next.skinTone;
     this.draft.hairStyle = next.hairStyle as HairStyle;
     this.draft.hairColor = next.hairColor;
@@ -392,6 +445,7 @@ export class AppearanceModal {
       chinShape: next.chinShape,
     };
     this.draft.face = {
+      ...this.draft.face,
       brow: next.brow,
       nose: next.nose,
       eyeSpacing: next.eyeSpacing,
@@ -401,104 +455,15 @@ export class AppearanceModal {
     };
     this.preview.setAppearance(this.draft);
     this.syncDraftControls();
+    this.updateHeaderPresetButtons();
     this.resetView();
-    this.controlsWrap.querySelectorAll('.appearance-preset-button').forEach((button) => {
-      const target = button as HTMLButtonElement;
-      const isSelected = target.dataset.preset === preset;
-      target.setAttribute('aria-pressed', String(isSelected));
-      target.classList.toggle('is-selected', isSelected);
-    });
-  }
-
-  private rangeRow(
-    label: string,
-    key:
-      | 'headScale'
-      | 'jawWidth'
-      | 'chinShape'
-      | 'eyeSpacing'
-      | 'brow'
-      | 'nose'
-      | 'mouth'
-      | 'beard'
-      | 'stubble'
-      | 'shoulderWidth'
-      | 'torsoLength'
-      | 'torsoTaper'
-      | 'hipWidth'
-      | 'armThickness'
-      | 'legLength',
-    min: number,
-    max: number,
-    defaultValue: number,
-    step: number
-  ): HTMLLabelElement {
-    const row = document.createElement('label');
-    row.className = 'appearance-control';
-    const meta = document.createElement('span');
-    meta.textContent = label;
-
-    const value = document.createElement('output');
-    value.textContent = String(this.getValueForKey(key, defaultValue));
-
-    const input = document.createElement('input');
-    input.type = 'range';
-    input.min = String(min);
-    input.max = String(max);
-    input.step = String(step);
-    input.value = String(this.getValueForKey(key, defaultValue));
-    input.dataset.key = key;
-
-    input.addEventListener('input', () => {
-      const next = Number(input.value);
-      const profile = this.draft.profile;
-      const face = this.draft.face;
-
-      if (key === 'headScale') {
-        this.draft.profile = { ...profile, headScale: next };
-      } else if (key === 'jawWidth') {
-        this.draft.profile = { ...profile, jawWidth: next };
-      } else if (key === 'chinShape') {
-        this.draft.profile = { ...profile, chinShape: next };
-      } else if (key === 'eyeSpacing') {
-        this.draft.face = { ...face, eyeSpacing: next };
-      } else if (key === 'brow') {
-        this.draft.face = { ...face, brow: next };
-      } else if (key === 'nose') {
-        this.draft.face = { ...face, nose: next };
-      } else if (key === 'mouth') {
-        this.draft.face = { ...face, mouth: next };
-      } else if (key === 'beard') {
-        this.draft.face = { ...face, beard: next };
-      } else if (key === 'stubble') {
-        this.draft.face = { ...face, stubble: next };
-      } else if (key === 'shoulderWidth') {
-        this.draft.profile = { ...profile, shoulderWidth: next };
-      } else if (key === 'torsoLength') {
-        this.draft.profile = { ...profile, torsoLength: next };
-      } else if (key === 'torsoTaper') {
-        this.draft.profile = { ...profile, torsoTaper: next };
-      } else if (key === 'hipWidth') {
-        this.draft.profile = { ...profile, hipWidth: next };
-      } else if (key === 'armThickness') {
-        this.draft.profile = { ...profile, armThickness: next };
-      } else if (key === 'legLength') {
-        this.draft.profile = { ...profile, legLength: next };
-      }
-
-      value.textContent = String(next);
-      this.preview.setAppearance(this.draft);
-      this.resetView();
-    });
-
-    row.append(meta, value, input);
-    return row;
   }
 
   private selectRow(
     label: string,
-    key: 'bodyProfile' | 'hairStyle' | 'facePreset',
-    options: string[]
+    key: 'bodyProfile' | 'hairStyle' | 'facePreset' | 'avatarModelId',
+    options: string[],
+    disabled = false
   ): HTMLLabelElement {
     const row = document.createElement('label');
     row.className = 'appearance-control';
@@ -507,6 +472,10 @@ export class AppearanceModal {
     const select = document.createElement('select');
     select.className = 'appearance-select';
     select.dataset.key = key;
+    select.disabled = disabled;
+    select.title = disabled
+      ? 'Unsupported in the FaceCap prototype model. Separate male/female bases are not included in this asset.'
+      : '';
 
     for (const option of options) {
       const opt = document.createElement('option');
@@ -533,8 +502,11 @@ export class AppearanceModal {
           ...this.draft.face,
           ...FACE_PRESETS[preset],
         };
+      } else if (key === 'avatarModelId') {
+        this.draft.avatarModelId = select.value as 'male' | 'female';
       }
       this.preview.setAppearance(this.draft);
+      this.clearLegacyDiagnosticsState();
       this.resetView();
     });
 
@@ -542,149 +514,27 @@ export class AppearanceModal {
     return row;
   }
 
-  private colorRow(
-    label: string,
-    key: 'skinTone' | 'hairColor' | 'shirtColor' | 'shortsColor' | 'shoeColor' | 'accentColor'
-  ): HTMLLabelElement {
-    const row = document.createElement('label');
-    row.className = 'appearance-control';
-    const meta = document.createElement('span');
-    meta.textContent = label;
-
-    const input = document.createElement('input');
-    input.type = 'color';
-    input.value = hexFromNumber(this.getColorValue(key));
-    input.dataset.key = key;
-
-    input.addEventListener('input', () => {
-      const value = Number(`0x${input.value.slice(1)}`);
-      if (key === 'skinTone') {
-        this.draft.skinTone = value;
-      } else if (key === 'hairColor') {
-        this.draft.hairColor = value;
-      } else if (key === 'shirtColor') {
-        this.draft.shirtColor = value;
-      } else if (key === 'shortsColor') {
-        this.draft.shortsColor = value;
-      } else if (key === 'shoeColor') {
-        this.draft.shoeColor = value;
-      } else if (key === 'accentColor') {
-        this.draft.accentColor = value;
-      }
-      this.preview.setAppearance(this.draft);
-      this.resetView();
-    });
-
-    row.append(meta, input);
-    return row;
-  }
-
-  private getValueForKey(
-    key:
-      | 'headScale'
-      | 'jawWidth'
-      | 'chinShape'
-      | 'eyeSpacing'
-      | 'brow'
-      | 'nose'
-      | 'mouth'
-      | 'beard'
-      | 'stubble'
-      | 'shoulderWidth'
-      | 'torsoLength'
-      | 'torsoTaper'
-      | 'hipWidth'
-      | 'armThickness'
-      | 'legLength',
-    fallback: number
-  ): number {
-    const { profile, face } = this.draft;
-    switch (key) {
-      case 'headScale':
-        return profile.headScale ?? fallback;
-      case 'jawWidth':
-        return profile.jawWidth ?? fallback;
-      case 'chinShape':
-        return profile.chinShape ?? fallback;
-      case 'eyeSpacing':
-        return face.eyeSpacing ?? fallback;
-      case 'brow':
-        return face.brow ?? fallback;
-      case 'nose':
-        return face.nose ?? fallback;
-      case 'mouth':
-        return face.mouth ?? fallback;
-      case 'beard':
-        return face.beard ?? fallback;
-      case 'stubble':
-        return face.stubble ?? fallback;
-      case 'shoulderWidth':
-        return profile.shoulderWidth ?? fallback;
-      case 'torsoLength':
-        return profile.torsoLength ?? fallback;
-      case 'torsoTaper':
-        return profile.torsoTaper ?? fallback;
-      case 'hipWidth':
-        return profile.hipWidth ?? fallback;
-      case 'armThickness':
-        return profile.armThickness ?? fallback;
-      case 'legLength':
-        return profile.legLength ?? fallback;
-      default:
-        return fallback;
-    }
-  }
-
-  private getSelectValue(key: 'bodyProfile' | 'hairStyle' | 'facePreset'): string {
+  private getSelectValue(
+    key: 'bodyProfile' | 'hairStyle' | 'facePreset' | 'avatarModelId'
+  ): string {
     if (key === 'bodyProfile') {
       return this.draft.bodyProfile ?? 'neutralLean';
     }
     if (key === 'hairStyle') {
       return this.draft.hairStyle ?? 'shortCrop';
     }
+    if (key === 'avatarModelId') {
+      return this.draft.avatarModelId ?? 'male';
+    }
     return this.draft.facePreset ?? 'neutral';
   }
 
-  private getColorValue(
-    key: 'skinTone' | 'hairColor' | 'shirtColor' | 'shortsColor' | 'shoeColor' | 'accentColor'
-  ): number {
-    if (key === 'skinTone') {
-      return this.draft.skinTone ?? DEFAULT_GOLFER_APPEARANCE.skinTone;
-    }
-    if (key === 'hairColor') {
-      return this.draft.hairColor ?? DEFAULT_GOLFER_APPEARANCE.hairColor;
-    }
-    if (key === 'shirtColor') {
-      return this.draft.shirtColor ?? DEFAULT_GOLFER_APPEARANCE.shirtColor;
-    }
-    if (key === 'shortsColor') {
-      return this.draft.shortsColor ?? DEFAULT_GOLFER_APPEARANCE.shortsColor;
-    }
-    if (key === 'shoeColor') {
-      return this.draft.shoeColor ?? DEFAULT_GOLFER_APPEARANCE.shoeColor;
-    }
-    return this.draft.accentColor ?? DEFAULT_GOLFER_APPEARANCE.accentColor ?? 0x8e2f20;
-  }
-
   private syncDraftControls() {
-    const controls = this.controlsWrap.querySelectorAll('input, select');
+    const controls = this.controlsWrap.querySelectorAll('select');
     controls.forEach((control) => {
-      if (control instanceof HTMLInputElement) {
-        const key = control.dataset.key as string | undefined;
-        if (control.type === 'range' && key) {
-          const typedKey = key as Parameters<AppearanceModal['getValueForKey']>[0];
-          control.value = String(this.getValueForKey(typedKey, Number(control.min)));
-        }
-        if (control.type === 'color' && key) {
-          const typedKey = key as Parameters<AppearanceModal['getColorValue']>[0];
-          control.value = hexFromNumber(this.getColorValue(typedKey));
-        }
-      }
-      if (control instanceof HTMLSelectElement) {
-        const key = control.dataset.key as 'bodyProfile' | 'hairStyle' | undefined;
-        if (key) {
-          control.value = this.getSelectValue(key);
-        }
+      const key = control.dataset.key as 'bodyProfile' | 'hairStyle' | 'avatarModelId' | undefined;
+      if (key) {
+        control.value = this.getSelectValue(key);
       }
     });
   }
@@ -826,6 +676,7 @@ export class AppearanceModal {
   };
 
   private applyModeToggle() {
+    this.clearLegacyDiagnosticsState();
     this.controlsWrap.innerHTML = '';
     this.controlsWrap.appendChild(this.buildControls());
     const modeToggle = document.createElement('div');

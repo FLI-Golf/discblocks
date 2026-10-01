@@ -69,3 +69,9 @@ export const COURSE = {
     arms: 1 + (i % 3),
   })),
 };
+export function headingTowardBasket(
+  position: { x: number; z: number },
+  target: { x: number; z: number } = { x: 0, z: COURSE.basketZ }
+): number {
+  return Math.atan2(target.x - position.x, target.z - position.z);
+}

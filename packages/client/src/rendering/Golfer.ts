@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 import type { GolferLook } from '@/game/players';
 
 type Euler3 = [number, number, number];
@@ -45,6 +48,12 @@ export interface BodyProfile {
 }
 
 export type FacePresetId = 'male' | 'female' | 'neutral';
+export type AvatarModelId = 'male' | 'female';
+
+export const AVATAR_MODEL_URLS: Record<AvatarModelId, string> = {
+  male: '/models/male_avatar.glb',
+  female: '/models/female_avatar.glb',
+};
 
 export interface FaceConfig {
   preset: FacePresetId;
@@ -63,6 +72,7 @@ export interface FaceConfig {
 }
 
 export interface CharacterAppearance {
+  avatarModelId: AvatarModelId;
   bodyProfile: BodyProfileId;
   profile: BodyProfile;
   skinTone: number;
@@ -72,6 +82,7 @@ export interface CharacterAppearance {
   shortsColor: number;
   shoeColor: number;
   accentColor: number;
+  jerseyNumber: number;
   brow: number;
   nose: number;
   eyeSpacing: number;
@@ -107,6 +118,15 @@ export type GolferAppearance = CharacterAppearance & {
   profile?: BodyProfile;
 };
 
+export type PartialGolferAppearance = Omit<
+  Partial<GolferAppearance>,
+  'profile' | 'face' | 'outfit'
+> & {
+  profile?: Partial<BodyProfile>;
+  face?: Partial<CharacterAppearance['face']>;
+  outfit?: Partial<CharacterAppearance['outfit']>;
+};
+
 export interface AccessoryConfig {
   color?: number;
   accent?: number;
@@ -123,19 +143,37 @@ interface Pose {
 }
 
 const SKIN = 0xd9a877;
-const JERSEY = 0xc2452d;
+const JERSEY = 0x111827;
 const SHORTS = 0x1a1a1e;
 const SHOE = 0x111114;
-const HAIR = 0x2b1d16;
+const HAIR = 0x3b241b;
 
 const DEFAULT_LOOK: GolferLook = {
   jersey: JERSEY,
-  accent: 0x8e2f20,
+  accent: 0xd72638,
   shorts: SHORTS,
   skin: SKIN,
   hair: HAIR,
-  hairStyle: 'ponytail',
+  hairStyle: 'sidePart',
   build: 1,
+};
+
+const STAND_POSE: Pose = {
+  rootYaw: 0,
+  rootLift: 0,
+  joints: {
+    hips: [0, 0, 0],
+    torso: [0.08, 0, 0],
+    head: [0, -0.12, 0],
+    shoulderR: [0.25, 0, -0.7],
+    elbowR: [0, 0, -0.28],
+    shoulderL: [0.15, 0, 0.78],
+    elbowL: [0, 0, 0.38],
+    hipR: [0.06, 0, 0.08],
+    kneeR: [0.12, 0, 0],
+    hipL: [0.04, 0, -0.08],
+    kneeL: [0.12, 0, 0],
+  },
 };
 
 export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
@@ -181,10 +219,15 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
 };
 
 export function buildCharacterAppearance(
-  overrides: Partial<CharacterAppearance> = {}
+  overrides: PartialGolferAppearance = {}
 ): CharacterAppearance {
   const baseProfile = overrides.bodyProfile ?? 'neutralLean';
-  const profile = overrides.profile ?? BODY_PROFILES[baseProfile];
+  const baseProfileData = BODY_PROFILES[baseProfile] ?? BODY_PROFILES.neutralLean;
+  const profile = {
+    ...baseProfileData,
+    ...overrides.profile,
+    id: overrides.profile?.id ?? baseProfileData.id ?? baseProfile,
+  };
   const presetId = overrides.facePreset ?? (baseProfile === 'athleticFemale' ? 'female' : 'male');
   const facePreset = FACE_PRESETS[presetId] ?? FACE_PRESETS.male;
 
@@ -195,7 +238,39 @@ export function buildCharacterAppearance(
       ? 'shortCrop'
       : (overrides.hairStyle ?? facePreset.hairStyle);
 
+  const outfitDefaults = {
+    sleeveLength: 1,
+    collarHeight: 1,
+    shirtFit: 1,
+    shortsLength: 1,
+    pantsFit: 0.9,
+  };
+
+  const outfit = {
+    ...outfitDefaults,
+    ...overrides.outfit,
+    sleeveLength:
+      overrides.outfit?.sleeveLength ?? overrides.sleeveLength ?? outfitDefaults.sleeveLength,
+    collarHeight:
+      overrides.outfit?.collarHeight ?? overrides.collarHeight ?? outfitDefaults.collarHeight,
+    shirtFit: overrides.outfit?.shirtFit ?? overrides.shirtFit ?? outfitDefaults.shirtFit,
+    shortsLength:
+      overrides.outfit?.shortsLength ?? overrides.shortsLength ?? outfitDefaults.shortsLength,
+    pantsFit: overrides.outfit?.pantsFit ?? overrides.pantsFit ?? outfitDefaults.pantsFit,
+  };
+
+  const face = {
+    brow: overrides.brow ?? overrides.face?.brow ?? facePreset.brow,
+    nose: overrides.nose ?? overrides.face?.nose ?? facePreset.nose,
+    eyeSpacing: overrides.eyeSpacing ?? overrides.face?.eyeSpacing ?? facePreset.eyeSpacing,
+    mouth: overrides.mouth ?? overrides.face?.mouth ?? facePreset.mouth,
+    beard: overrides.beard ?? overrides.face?.beard ?? facePreset.beard,
+    stubble: overrides.stubble ?? overrides.face?.stubble ?? facePreset.stubble,
+  };
+
   const appearance: CharacterAppearance = {
+    avatarModelId:
+      overrides.avatarModelId ?? (baseProfile === 'athleticFemale' ? 'female' : 'male'),
     bodyProfile: baseProfile,
     profile,
     skinTone: overrides.skinTone ?? facePreset.skinTone,
@@ -204,34 +279,22 @@ export function buildCharacterAppearance(
     shirtColor: overrides.shirtColor ?? JERSEY,
     shortsColor: overrides.shortsColor ?? SHORTS,
     shoeColor: overrides.shoeColor ?? SHOE,
-    accentColor: overrides.accentColor ?? 0x8e2f20,
-    brow: overrides.brow ?? overrides.face?.brow ?? facePreset.brow,
-    nose: overrides.nose ?? overrides.face?.nose ?? facePreset.nose,
-    eyeSpacing: overrides.eyeSpacing ?? overrides.face?.eyeSpacing ?? facePreset.eyeSpacing,
-    mouth: overrides.mouth ?? overrides.face?.mouth ?? facePreset.mouth,
-    beard: overrides.beard ?? overrides.face?.beard ?? facePreset.beard,
-    stubble: overrides.stubble ?? overrides.face?.stubble ?? facePreset.stubble,
-    sleeveLength: overrides.sleeveLength ?? 1,
-    collarHeight: overrides.collarHeight ?? 1,
-    shirtFit: overrides.shirtFit ?? 1,
-    shortsLength: overrides.shortsLength ?? 1,
-    pantsFit: overrides.pantsFit ?? 0.9,
+    accentColor: overrides.accentColor ?? 0xd72638,
+    jerseyNumber: overrides.jerseyNumber ?? 1,
+    brow: face.brow,
+    nose: face.nose,
+    eyeSpacing: face.eyeSpacing,
+    mouth: face.mouth,
+    beard: face.beard,
+    stubble: face.stubble,
+    sleeveLength: outfit.sleeveLength,
+    collarHeight: outfit.collarHeight,
+    shirtFit: outfit.shirtFit,
+    shortsLength: outfit.shortsLength,
+    pantsFit: outfit.pantsFit,
     facePreset: presetId,
-    outfit: {
-      sleeveLength: overrides.outfit?.sleeveLength ?? overrides.sleeveLength ?? 1,
-      collarHeight: overrides.outfit?.collarHeight ?? overrides.collarHeight ?? 1,
-      shirtFit: overrides.outfit?.shirtFit ?? overrides.shirtFit ?? 1,
-      shortsLength: overrides.outfit?.shortsLength ?? overrides.shortsLength ?? 1,
-      pantsFit: overrides.outfit?.pantsFit ?? overrides.pantsFit ?? 0.9,
-    },
-    face: {
-      brow: overrides.face?.brow ?? overrides.brow ?? facePreset.brow,
-      nose: overrides.face?.nose ?? overrides.nose ?? facePreset.nose,
-      eyeSpacing: overrides.face?.eyeSpacing ?? overrides.eyeSpacing ?? facePreset.eyeSpacing,
-      mouth: overrides.face?.mouth ?? overrides.mouth ?? facePreset.mouth,
-      beard: overrides.face?.beard ?? overrides.beard ?? facePreset.beard,
-      stubble: overrides.face?.stubble ?? overrides.stubble ?? facePreset.stubble,
-    },
+    outfit,
+    face,
   };
 
   return appearance;
@@ -240,60 +303,62 @@ export function buildCharacterAppearance(
 export const FACE_PRESETS: Record<FacePresetId, FaceConfig> = {
   male: {
     preset: 'male',
-    skinTone: SKIN,
-    hairColor: HAIR,
-    hairStyle: 'shortCrop',
-    headScale: 1.08,
-    jawWidth: 1.24,
-    chinShape: 1.12,
-    brow: 0.72,
-    nose: 0.54,
-    eyeSpacing: 0.46,
-    mouth: 0.66,
-    beard: 0.06,
-    stubble: 0.08,
+    skinTone: 0xe7c7b7,
+    hairColor: 0xd4a66b,
+    hairStyle: 'sidePart',
+    headScale: 1.14,
+    jawWidth: 0.96,
+    chinShape: 0.78,
+    brow: 0.76,
+    nose: 0.4,
+    eyeSpacing: 0.8,
+    mouth: 0.44,
+    beard: 0,
+    stubble: 0,
   },
   female: {
     preset: 'female',
-    skinTone: SKIN,
-    hairColor: HAIR,
-    hairStyle: 'sidePart',
-    headScale: 0.98,
-    jawWidth: 0.84,
-    chinShape: 0.86,
-    brow: 0.52,
-    nose: 0.64,
-    eyeSpacing: 0.68,
-    mouth: 0.58,
+    skinTone: 0xeec19a,
+    hairColor: 0x6b4a2f,
+    hairStyle: 'bun',
+    headScale: 0.96,
+    jawWidth: 0.78,
+    chinShape: 0.7,
+    brow: 0.28,
+    nose: 0.72,
+    eyeSpacing: 0.72,
+    mouth: 0.36,
     beard: 0,
-    stubble: 0.04,
+    stubble: 0,
   },
   neutral: {
     preset: 'neutral',
-    skinTone: SKIN,
-    hairColor: HAIR,
+    skinTone: 0xefc49d,
+    hairColor: 0x533725,
     hairStyle: 'shortCrop',
-    headScale: 1.0,
-    jawWidth: 1.02,
-    chinShape: 1.0,
-    brow: 0.52,
-    nose: 0.52,
-    eyeSpacing: 0.5,
+    headScale: 1.04,
+    jawWidth: 1.08,
+    chinShape: 0.99,
+    brow: 0.55,
+    nose: 0.57,
+    eyeSpacing: 0.57,
     mouth: 0.52,
     beard: 0,
-    stubble: 0,
+    stubble: 0.02,
   },
 };
 
 export const DEFAULT_GOLFER_APPEARANCE: GolferAppearance = buildCharacterAppearance({
+  avatarModelId: 'male',
   bodyProfile: 'neutralLean',
-  skinTone: SKIN,
-  hairStyle: 'shortCrop',
-  hairColor: HAIR,
+  skinTone: 0xe7c7b7,
+  hairStyle: 'sidePart',
+  hairColor: 0xd4a66b,
   shirtColor: JERSEY,
   shortsColor: SHORTS,
   shoeColor: SHOE,
-  accentColor: 0x8e2f20,
+  accentColor: 0xd72638,
+  jerseyNumber: 1,
   beard: 0,
   stubble: 0,
   facePreset: 'male',
@@ -792,19 +857,432 @@ function createDiscVisual(color: number): THREE.Mesh {
   return mesh;
 }
 
+function createJerseyTexture(
+  baseColor: number,
+  accentColor: number,
+  numberText: string
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  if (!ctx || typeof ctx.fillRect !== 'function') {
+    const fallback = new THREE.CanvasTexture(canvas);
+    fallback.colorSpace = THREE.SRGBColorSpace;
+    return fallback;
+  }
+
+  ctx.fillStyle = '#111827';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const base = new THREE.Color(baseColor);
+  const accent = new THREE.Color(accentColor);
+  const white = '#f5f7fb';
+  const gray = '#d8dde6';
+  const dark = '#0f172a';
+
+  ctx.fillStyle = `#${base.getHexString()}`;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = `#${accent.getHexString()}`;
+  ctx.fillRect(0, 0, canvas.width, 54);
+  ctx.fillRect(0, canvas.height - 54, canvas.width, 54);
+  ctx.fillRect(0, 0, 54, canvas.height);
+  ctx.fillRect(canvas.width - 54, 0, 54, canvas.height);
+
+  ctx.fillStyle = gray;
+  ctx.fillRect(120, 170, canvas.width - 240, 26);
+  ctx.fillRect(120, 314, canvas.width - 240, 18);
+
+  ctx.fillStyle = white;
+  ctx.fillRect(150, 220, canvas.width - 300, 100);
+  ctx.fillStyle = dark;
+  ctx.strokeStyle = '#f8fafc';
+  ctx.lineWidth = 12;
+  ctx.strokeRect(165, 235, canvas.width - 330, 70);
+
+  ctx.fillStyle = '#e11d48';
+  ctx.beginPath();
+  ctx.moveTo(canvas.width / 2, 116);
+  ctx.lineTo(canvas.width / 2 - 44, 170);
+  ctx.lineTo(canvas.width / 2 + 44, 170);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = '700 110px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(numberText, canvas.width / 2, canvas.height / 2 + 28);
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = '700 44px sans-serif';
+  ctx.fillText('ACE', canvas.width / 2, 208);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function createJerseyMaterial(appearance: GolferAppearance): THREE.MeshStandardMaterial {
+  const texture = createJerseyTexture(
+    appearance.shirtColor,
+    appearance.accentColor ?? 0xe02b20,
+    String(Math.max(0, Math.round(appearance.jerseyNumber || 1)))
+  );
+
+  return new THREE.MeshStandardMaterial({
+    map: texture,
+    roughness: 0.72,
+    metalness: 0.04,
+    color: 0xffffff,
+  });
+}
+
+export const FACE_MODEL_URL = '/models/facecap.glb';
+export const FACE_MODEL_MORPH_TARGETS = [
+  'browInnerUp',
+  'browDown_L',
+  'browDown_R',
+  'browOuterUp_L',
+  'browOuterUp_R',
+  'eyeLookUp_L',
+  'eyeLookUp_R',
+  'eyeLookDown_L',
+  'eyeLookDown_R',
+  'eyeLookIn_L',
+  'eyeLookIn_R',
+  'eyeLookOut_L',
+  'eyeLookOut_R',
+  'eyeBlink_L',
+  'eyeBlink_R',
+  'eyeSquint_L',
+  'eyeSquint_R',
+  'eyeWide_L',
+  'eyeWide_R',
+  'cheekPuff',
+  'cheekSquint_L',
+  'cheekSquint_R',
+  'noseSneer_L',
+  'noseSneer_R',
+  'jawOpen',
+  'jawForward',
+  'jawLeft',
+  'jawRight',
+  'mouthFunnel',
+  'mouthPucker',
+  'mouthLeft',
+  'mouthRight',
+  'mouthRollUpper',
+  'mouthRollLower',
+  'mouthShrugUpper',
+  'mouthShrugLower',
+  'mouthClose',
+  'mouthSmile_L',
+  'mouthSmile_R',
+  'mouthFrown_L',
+  'mouthFrown_R',
+  'mouthDimple_L',
+  'mouthDimple_R',
+  'mouthUpperUp_L',
+  'mouthUpperUp_R',
+  'mouthLowerDown_L',
+  'mouthLowerDown_R',
+  'mouthPress_L',
+  'mouthPress_R',
+  'mouthStretch_L',
+  'mouthStretch_R',
+  'tongueOut',
+] as const;
+
 export class Face {
+  private static modelLoader?: GLTFLoader;
+  private static sharedKTX2Loader?: KTX2Loader;
+
   readonly root = new THREE.Group();
   private config: FaceConfig;
+  private faceMesh?: THREE.Mesh & {
+    morphTargetDictionary?: Record<string, number>;
+    morphTargetInfluences?: number[];
+  };
   private hairRoot?: THREE.Group;
+  readonly ready: Promise<void>;
+
+  static getModelLoader(): GLTFLoader {
+    if (!Face.modelLoader) {
+      const loader = new GLTFLoader();
+      loader.setKTX2Loader(Face.getSharedKTX2Loader());
+      loader.setMeshoptDecoder(MeshoptDecoder);
+      Face.modelLoader = loader;
+    }
+    return Face.modelLoader;
+  }
+
+  static getSharedKTX2Loader(): KTX2Loader {
+    if (!Face.sharedKTX2Loader) {
+      const loader = new KTX2Loader();
+      loader.setTranscoderPath('/node_modules/three/examples/jsm/libs/basis/');
+      Face.sharedKTX2Loader = loader;
+    }
+    return Face.sharedKTX2Loader;
+  }
 
   constructor(config: Partial<FaceConfig> = {}) {
     this.config = { ...FACE_PRESETS.neutral, ...config };
-    this.build();
+    this.config.hairStyle = this.normalizeHairStyle(this.config.hairStyle);
+    this.buildLegacyFallbackHead();
+    this.ready = this.loadModel();
+  }
+
+  getMorphTargetNames(): string[] {
+    return [...FACE_MODEL_MORPH_TARGETS];
+  }
+
+  private normalizeHairStyle(style: HairStyle | undefined): HairStyle {
+    if (style === 'short' || style === 'cap' || style === 'visor') {
+      return 'shortCrop';
+    }
+    return style ?? 'shortCrop';
+  }
+
+  private async loadModel() {
+    try {
+      const loader = Face.getModelLoader();
+      const ktx2Loader = Face.getSharedKTX2Loader();
+      await MeshoptDecoder.ready;
+      try {
+        const renderer = new THREE.WebGLRenderer({
+          antialias: false,
+          alpha: true,
+          powerPreference: 'high-performance',
+        });
+        renderer.setSize(1, 1);
+        ktx2Loader.detectSupport(renderer);
+        renderer.dispose();
+      } catch {
+        // Some test or headless environments cannot create a WebGL renderer.
+      }
+
+      const gltf = await new Promise<THREE.Group>((resolve, reject) => {
+        loader.load(
+          FACE_MODEL_URL,
+          (loaded) => resolve(loaded.scene),
+          undefined,
+          (error) => reject(error)
+        );
+      });
+
+      const faceMesh = this.findMorphTargetMesh(gltf);
+      if (faceMesh) {
+        this.root.clear();
+        this.faceMesh = faceMesh;
+        this.root.add(faceMesh);
+        faceMesh.scale.set(1.2, 1.2, 1.2);
+        faceMesh.position.set(0, -0.12, 0.18);
+        faceMesh.rotation.y = Math.PI;
+        faceMesh.castShadow = true;
+        faceMesh.receiveShadow = true;
+        this.addHair();
+        this.apply();
+        return;
+      }
+    } catch (error) {
+      console.error('Face model failed to load:', error);
+    }
+
     this.apply();
+  }
+
+  private findMorphTargetMesh(root: THREE.Object3D):
+    | (THREE.Mesh & {
+        morphTargetDictionary?: Record<string, number>;
+        morphTargetInfluences?: number[];
+      })
+    | undefined {
+    let result:
+      | (THREE.Mesh & {
+          morphTargetDictionary?: Record<string, number>;
+          morphTargetInfluences?: number[];
+        })
+      | undefined;
+
+    root.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) {
+        return;
+      }
+      if (Array.isArray(child.morphTargetInfluences) && child.morphTargetInfluences.length > 0) {
+        result = child as typeof result;
+      }
+    });
+
+    return result;
+  }
+
+  private buildLegacyFallbackHead() {
+    this.root.clear();
+    this.faceMesh = undefined;
+
+    const skin = new THREE.MeshStandardMaterial({
+      color: this.config.skinTone,
+      roughness: 0.72,
+      metalness: 0.04,
+    });
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 20, 18), skin);
+    head.name = 'head-part';
+    head.scale.set(1.06, 1.18, 0.96);
+    head.position.y = 0.04;
+    head.castShadow = true;
+    this.root.add(head);
+
+    const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.12, 18, 16), skin.clone());
+    jaw.name = 'jaw-part';
+    jaw.scale.set(1.02, 0.78, 0.9);
+    jaw.position.set(0, -0.12, 0.04);
+    this.root.add(jaw);
+
+    const cheekLeft = new THREE.Mesh(new THREE.SphereGeometry(0.04, 12, 10), skin.clone());
+    cheekLeft.name = 'cheek-left';
+    cheekLeft.scale.set(0.82, 0.56, 0.52);
+    cheekLeft.position.set(-0.08, -0.02, 0.08);
+    this.root.add(cheekLeft);
+
+    const cheekRight = cheekLeft.clone();
+    cheekRight.name = 'cheek-right';
+    cheekRight.position.x = 0.08;
+    this.root.add(cheekRight);
+
+    const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0xf4f7ff, roughness: 0.25 });
+    const eyeLeft = new THREE.Mesh(new THREE.SphereGeometry(0.034, 12, 10), eyeMaterial);
+    eyeLeft.name = 'eye-white-left';
+    eyeLeft.position.set(-0.05, 0.03, 0.11);
+    this.root.add(eyeLeft);
+
+    const eyeRight = eyeLeft.clone();
+    eyeRight.name = 'eye-white-right';
+    eyeRight.position.x = 0.05;
+    this.root.add(eyeRight);
+
+    const eyelidLeft = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.014, 0.014),
+      new THREE.MeshStandardMaterial({ color: this.config.skinTone, roughness: 0.75 })
+    );
+    eyelidLeft.name = 'eyelid-left';
+    eyelidLeft.position.set(-0.05, 0.05, 0.106);
+    eyelidLeft.rotation.z = 0.08;
+    this.root.add(eyelidLeft);
+
+    const eyelidRight = eyelidLeft.clone();
+    eyelidRight.name = 'eyelid-right';
+    eyelidRight.position.x = 0.05;
+    eyelidRight.rotation.z = -0.08;
+    this.root.add(eyelidRight);
+
+    const nose = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.014, 0.06, 6, 10),
+      new THREE.MeshStandardMaterial({ color: this.config.skinTone, roughness: 0.8 })
+    );
+    nose.name = 'nose-part';
+    nose.rotation.x = Math.PI / 2;
+    nose.position.set(0, -0.02, 0.13);
+    this.root.add(nose);
+
+    const mouth = new THREE.Mesh(
+      new THREE.TorusGeometry(0.024, 0.0036, 8, 24, Math.PI),
+      new THREE.MeshStandardMaterial({ color: 0xab5a60, roughness: 0.9 })
+    );
+    mouth.name = 'mouth-part';
+    mouth.position.set(0, -0.1, 0.12);
+    mouth.rotation.z = Math.PI;
+    this.root.add(mouth);
+
+    this.addHair();
+  }
+
+  private addHair() {
+    if (this.hairRoot) {
+      this.hairRoot.removeFromParent();
+    }
+
+    const hairRoot = new THREE.Group();
+    hairRoot.name = 'hair-root';
+    this.root.add(hairRoot);
+    this.hairRoot = hairRoot;
+
+    const hairStyle = this.normalizeHairStyle(this.config.hairStyle);
+    const hairMaterial = new THREE.MeshStandardMaterial({
+      color: this.config.hairColor,
+      roughness: 0.94,
+      metalness: 0.04,
+    });
+
+    if (hairStyle === 'bald') {
+      return;
+    }
+
+    const scalp = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 12), hairMaterial);
+    scalp.name = 'hair-part';
+    scalp.scale.set(1.06, 0.7, 1.02);
+    scalp.position.set(0, 0.08, 0.02);
+    hairRoot.add(scalp);
+
+    if (hairStyle === 'ponytail') {
+      const tail = new THREE.Mesh(new THREE.CapsuleGeometry(0.024, 0.22, 6, 12), hairMaterial);
+      tail.position.set(0, 0.02, -0.14);
+      tail.rotation.x = -1.2;
+      hairRoot.add(tail);
+      return;
+    }
+
+    if (hairStyle === 'bun') {
+      const bun = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 10), hairMaterial);
+      bun.position.set(0, 0.05, -0.09);
+      hairRoot.add(bun);
+      return;
+    }
+
+    if (hairStyle === 'buzzCut') {
+      const fringe = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.026, 0.09), hairMaterial);
+      fringe.position.set(0, 0.05, 0.1);
+      hairRoot.add(fringe);
+      return;
+    }
+
+    if (hairStyle === 'undercut') {
+      const left = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), hairMaterial);
+      left.scale.set(0.9, 0.75, 1.1);
+      left.position.set(-0.12, 0.02, 0.04);
+      hairRoot.add(left);
+      const right = left.clone();
+      right.position.x = 0.12;
+      hairRoot.add(right);
+      return;
+    }
+
+    if (hairStyle === 'sidePart') {
+      const sweep = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.14, 5, 10), hairMaterial);
+      sweep.position.set(0.1, 0.03, 0.08);
+      sweep.rotation.z = -0.9;
+      hairRoot.add(sweep);
+      return;
+    }
+  }
+
+  debugReport(label: string) {
+    if (!this.faceMesh) {
+      console.log(`[${label}] Face model pending`, this.root.children.length);
+      return;
+    }
+    const names = Object.keys(this.faceMesh.morphTargetDictionary ?? {}).map((key) =>
+      key.replace('blendShape1.', '')
+    );
+    console.log(`[${label}] Face morph targets`, names);
   }
 
   setConfig(config: Partial<FaceConfig>) {
     this.config = { ...this.config, ...config };
+    this.config.hairStyle = this.normalizeHairStyle(this.config.hairStyle);
     this.apply();
   }
 
@@ -834,309 +1312,108 @@ export class Face {
 
   dispose() {
     this.root.traverse((child) => {
-      if (!(child instanceof THREE.Mesh)) {
-        return;
-      }
-      child.geometry.dispose();
-      const material = child.material;
-      if (Array.isArray(material)) {
-        material.forEach((entry) => entry.dispose());
-      } else {
-        material.dispose();
+      if (child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+        const material = child.material;
+        if (Array.isArray(material)) {
+          material.forEach((entry) => entry.dispose());
+        } else {
+          material.dispose();
+        }
       }
     });
+    this.root.clear();
   }
 
-  private build() {
-    const headMaterial = new THREE.MeshStandardMaterial({
-      color: this.config.skinTone,
-      roughness: 0.68,
-      metalness: 0.04,
+  private applyMorph(name: string, value: number) {
+    if (!this.faceMesh || !this.faceMesh.morphTargetDictionary) {
+      return;
+    }
+
+    const dictionary = this.faceMesh.morphTargetDictionary;
+    const key = Object.keys(dictionary).find((entry) => {
+      const morphName = entry.replace('blendShape1.', '');
+      return morphName === name;
     });
 
-    const skull = new THREE.Mesh(new THREE.SphereGeometry(0.136, 28, 24), headMaterial);
-    skull.name = 'head-part';
-    skull.castShadow = true;
-    skull.scale.set(1.0, 1.1, 0.96);
-    this.root.add(skull);
-
-    const jaw = new THREE.Mesh(
-      new THREE.SphereGeometry(0.094, 22, 16),
-      new THREE.MeshStandardMaterial({
-        color: this.config.skinTone,
-        roughness: 0.74,
-        metalness: 0.02,
-      })
-    );
-    jaw.name = 'jaw-part';
-    jaw.scale.set(1.08, 0.76, 0.9);
-    jaw.position.set(0, -0.079, 0.02);
-    this.root.add(jaw);
-
-    const leftEar = new THREE.Mesh(
-      new THREE.SphereGeometry(0.028, 12, 10),
-      new THREE.MeshStandardMaterial({ color: this.config.skinTone, roughness: 0.8 })
-    );
-    leftEar.scale.set(1.08, 1.3, 0.72);
-    leftEar.position.set(-0.145, 0.018, 0);
-    this.root.add(leftEar);
-
-    const rightEar = leftEar.clone();
-    rightEar.position.x = 0.145;
-    this.root.add(rightEar);
-
-    const eyeMaterial = new THREE.MeshStandardMaterial({
-      color: 0xeff4ff,
-      roughness: 0.22,
-      metalness: 0.02,
-    });
-    const whiteLeft = new THREE.Mesh(new THREE.SphereGeometry(0.026, 18, 14), eyeMaterial);
-    whiteLeft.name = 'eye-white-left';
-    whiteLeft.position.set(-0.045, 0.028, 0.11);
-    this.root.add(whiteLeft);
-
-    const whiteRight = whiteLeft.clone();
-    whiteRight.name = 'eye-white-right';
-    whiteRight.position.x = 0.045;
-    this.root.add(whiteRight);
-
-    const irisMaterial = new THREE.MeshStandardMaterial({
-      color: 0x2e4560,
-      roughness: 0.4,
-      metalness: 0.08,
-    });
-    const irisLeft = new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 10), irisMaterial);
-    irisLeft.name = 'iris-left';
-    irisLeft.position.set(-0.045, 0.026, 0.126);
-    this.root.add(irisLeft);
-
-    const irisRight = irisLeft.clone();
-    irisRight.name = 'iris-right';
-    irisRight.position.x = 0.045;
-    this.root.add(irisRight);
-
-    const pupilMaterial = new THREE.MeshStandardMaterial({ color: 0x0f1720, roughness: 0.7 });
-    const pupilLeft = new THREE.Mesh(new THREE.SphereGeometry(0.0055, 10, 8), pupilMaterial);
-    pupilLeft.name = 'pupil-left';
-    pupilLeft.position.set(-0.045, 0.026, 0.136);
-    this.root.add(pupilLeft);
-
-    const pupilRight = pupilLeft.clone();
-    pupilRight.name = 'pupil-right';
-    pupilRight.position.x = 0.045;
-    this.root.add(pupilRight);
-
-    const browMaterial = new THREE.MeshStandardMaterial({
-      color: this.config.hairColor,
-      roughness: 0.96,
-    });
-    const leftBrow = new THREE.Mesh(new THREE.BoxGeometry(0.066, 0.014, 0.014), browMaterial);
-    leftBrow.name = 'brow-left';
-    leftBrow.position.set(-0.045, 0.082, 0.104);
-    leftBrow.rotation.z = 0.12;
-    this.root.add(leftBrow);
-
-    const rightBrow = leftBrow.clone();
-    rightBrow.name = 'brow-right';
-    rightBrow.position.x = 0.045;
-    rightBrow.rotation.z = -0.12;
-    this.root.add(rightBrow);
-
-    const nose = new THREE.Mesh(
-      new THREE.ConeGeometry(0.02, 0.078, 12),
-      new THREE.MeshStandardMaterial({ color: this.config.skinTone, roughness: 0.7 })
-    );
-    nose.name = 'nose-part';
-    nose.rotation.x = Math.PI / 2;
-    nose.position.set(0, -0.03, 0.118);
-    this.root.add(nose);
-
-    const smile = new THREE.Mesh(
-      new THREE.TorusGeometry(0.034, 0.005, 10, 32, Math.PI),
-      new THREE.MeshStandardMaterial({ color: 0xab5a60, roughness: 0.9 })
-    );
-    smile.name = 'mouth-part';
-    smile.position.set(0, -0.094, 0.109);
-    smile.rotation.z = Math.PI;
-    this.root.add(smile);
-
-    const beard = new THREE.Mesh(
-      new THREE.SphereGeometry(0.09, 14, 10),
-      new THREE.MeshStandardMaterial({ color: this.config.hairColor, roughness: 0.96 })
-    );
-    beard.name = 'beard-part';
-    beard.scale.set(1.08, 0.7, 0.9);
-    beard.position.set(0, -0.118, 0.03);
-    beard.visible = false;
-    this.root.add(beard);
-
-    const stubble = new THREE.Mesh(
-      new THREE.SphereGeometry(0.084, 12, 10),
-      new THREE.MeshStandardMaterial({ color: 0x5a4530, roughness: 0.8 })
-    );
-    stubble.name = 'stubble-part';
-    stubble.scale.set(1.04, 0.22, 0.9);
-    stubble.position.set(0, -0.086, 0.09);
-    stubble.visible = false;
-    this.root.add(stubble);
-
-    this.addHair();
-  }
-
-  private addHair() {
-    if (this.hairRoot) {
-      this.hairRoot.removeFromParent();
-    }
-
-    const hairRoot = new THREE.Group();
-    hairRoot.name = 'hair-root';
-    this.root.add(hairRoot);
-    this.hairRoot = hairRoot;
-
-    const hairColor = this.config.hairColor;
-    const hairMaterial = new THREE.MeshStandardMaterial({ color: hairColor, roughness: 0.9 });
-
-    if (this.config.hairStyle === 'bald') {
+    if (!key || this.faceMesh.morphTargetInfluences === undefined) {
       return;
     }
 
-    if (this.config.hairStyle === 'ponytail') {
-      const crown = new THREE.Mesh(new THREE.SphereGeometry(0.142, 18, 12), hairMaterial);
-      crown.scale.set(1.1, 0.82, 1.04);
-      crown.position.set(0, 0.07, 0.02);
-      hairRoot.add(crown);
-      const tail = new THREE.Mesh(new THREE.CapsuleGeometry(0.034, 0.28, 6, 12), hairMaterial);
-      tail.rotation.x = -1.1;
-      tail.position.set(0, -0.02, 0.12);
-      hairRoot.add(tail);
-      return;
+    const index = dictionary[key];
+    if (typeof index === 'number') {
+      this.faceMesh.morphTargetInfluences[index] = value;
     }
-
-    if (this.config.hairStyle === 'bun') {
-      const crown = new THREE.Mesh(new THREE.SphereGeometry(0.124, 18, 12), hairMaterial);
-      crown.scale.set(1.18, 0.7, 1.1);
-      crown.position.set(0, 0.07, 0.02);
-      hairRoot.add(crown);
-      const bun = new THREE.Mesh(new THREE.SphereGeometry(0.072, 14, 10), hairMaterial);
-      bun.position.set(0, 0.04, -0.09);
-      hairRoot.add(bun);
-      return;
-    }
-
-    if (this.config.hairStyle === 'buzzCut') {
-      const top = new THREE.Mesh(new THREE.SphereGeometry(0.124, 18, 12), hairMaterial);
-      top.scale.set(1.28, 0.74, 1.12);
-      top.position.set(0, 0.07, 0.02);
-      hairRoot.add(top);
-      const fringe = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.04, 0.08), hairMaterial);
-      fringe.position.set(0, 0.02, 0.1);
-      hairRoot.add(fringe);
-      return;
-    }
-
-    if (this.config.hairStyle === 'undercut') {
-      const top = new THREE.Mesh(new THREE.SphereGeometry(0.13, 18, 12), hairMaterial);
-      top.scale.set(1.3, 0.8, 1.12);
-      top.position.set(0, 0.08, 0.02);
-      hairRoot.add(top);
-      const left = new THREE.Mesh(new THREE.SphereGeometry(0.058, 12, 10), hairMaterial);
-      left.scale.set(0.9, 0.7, 1.14);
-      left.position.set(-0.12, 0.02, 0.04);
-      hairRoot.add(left);
-      const right = left.clone();
-      right.position.x = 0.12;
-      hairRoot.add(right);
-      return;
-    }
-
-    if (this.config.hairStyle === 'sidePart') {
-      const top = new THREE.Mesh(new THREE.SphereGeometry(0.132, 18, 12), hairMaterial);
-      top.scale.set(1.22, 0.76, 1.12);
-      top.position.set(0, 0.08, 0.03);
-      hairRoot.add(top);
-      const sweep = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.06, 0.2), hairMaterial);
-      sweep.position.set(0.14, 0.02, 0.1);
-      sweep.rotation.z = -0.9;
-      hairRoot.add(sweep);
-      return;
-    }
-
-    const crop = new THREE.Mesh(new THREE.SphereGeometry(0.136, 18, 12), hairMaterial);
-    crop.scale.set(1.16, 0.78, 1.08);
-    crop.position.set(0, 0.08, 0.02);
-    hairRoot.add(crop);
   }
 
   private apply() {
+    this.root.scale.setScalar(Math.max(0.2, this.config.headScale ?? 1));
+    const hairstyle = this.normalizeHairStyle(this.config.hairStyle);
+    this.config.hairStyle = hairstyle;
+    this.addHair();
+
     const headPart = this.root.getObjectByName('head-part');
     if (headPart instanceof THREE.Mesh) {
       headPart.scale.set(
-        1.0 + (this.config.headScale - 1) * 0.5,
-        1.1 + (this.config.headScale - 1) * 0.5,
-        0.96 + (this.config.headScale - 1) * 0.3
+        1.04 + (this.config.headScale - 1) * 0.42,
+        1.18 + (this.config.headScale - 1) * 0.46,
+        0.96 + (this.config.headScale - 1) * 0.26
       );
+      headPart.position.y = 0.02 + (this.config.headScale - 1) * 0.012;
     }
 
     const jaw = this.root.getObjectByName('jaw-part');
     if (jaw instanceof THREE.Mesh) {
-      jaw.scale.set(this.config.jawWidth, 0.72 * this.config.chinShape, 0.9);
+      jaw.scale.set(this.config.jawWidth, 0.76 * this.config.chinShape, 0.9);
+      jaw.position.y = -0.1 - (this.config.chinShape - 1) * 0.04;
+      jaw.position.z = 0.01;
+    }
+
+    const cheekLeft = this.root.getObjectByName('cheek-left');
+    const cheekRight = this.root.getObjectByName('cheek-right');
+    if (cheekLeft instanceof THREE.Mesh && cheekRight instanceof THREE.Mesh) {
+      const eyeSpread = 0.052 + (1 - this.config.eyeSpacing) * 0.056;
+      cheekLeft.position.x = -eyeSpread;
+      cheekRight.position.x = eyeSpread;
+      cheekLeft.scale.set(
+        1.45 + this.config.jawWidth * 0.25,
+        0.9 + this.config.chinShape * 0.08,
+        0.9
+      );
+      cheekRight.scale.copy(cheekLeft.scale);
     }
 
     const eyeLeft = this.root.getObjectByName('eye-white-left');
     const eyeRight = this.root.getObjectByName('eye-white-right');
     if (eyeLeft instanceof THREE.Mesh && eyeRight instanceof THREE.Mesh) {
-      const spacing = (0.66 - this.config.eyeSpacing) * 0.14;
-      eyeLeft.position.x = -0.047 - spacing;
-      eyeRight.position.x = 0.047 + spacing;
-      eyeLeft.position.y = 0.028 + (0.5 - this.config.brow) * 0.016;
-      eyeRight.position.y = eyeLeft.position.y;
-
-      const irisLeft = this.root.getObjectByName('iris-left');
-      const irisRight = this.root.getObjectByName('iris-right');
-      const pupilLeft = this.root.getObjectByName('pupil-left');
-      const pupilRight = this.root.getObjectByName('pupil-right');
-      if (
-        irisLeft instanceof THREE.Mesh &&
-        irisRight instanceof THREE.Mesh &&
-        pupilLeft instanceof THREE.Mesh &&
-        pupilRight instanceof THREE.Mesh
-      ) {
-        irisLeft.position.x = eyeLeft.position.x;
-        irisRight.position.x = eyeRight.position.x;
-        pupilLeft.position.x = eyeLeft.position.x;
-        pupilRight.position.x = eyeRight.position.x;
+      const eyeSpread = 0.052 + (1 - this.config.eyeSpacing) * 0.056;
+      eyeLeft.position.x = -eyeSpread;
+      eyeRight.position.x = eyeSpread;
+      const leftEyelid = this.root.getObjectByName('eyelid-left');
+      const rightEyelid = this.root.getObjectByName('eyelid-right');
+      if (leftEyelid instanceof THREE.Mesh && rightEyelid instanceof THREE.Mesh) {
+        leftEyelid.position.x = eyeLeft.position.x;
+        rightEyelid.position.x = eyeRight.position.x;
       }
-    }
-
-    const leftBrow = this.root.getObjectByName('brow-left');
-    const rightBrow = this.root.getObjectByName('brow-right');
-    if (leftBrow instanceof THREE.Mesh && rightBrow instanceof THREE.Mesh) {
-      const lift = 0.04 + this.config.brow * 0.03;
-      leftBrow.position.y = 0.082 + lift;
-      rightBrow.position.y = leftBrow.position.y;
-      leftBrow.scale.set(0.9 + this.config.brow * 0.75, 0.9 + this.config.brow * 0.2, 1);
-      rightBrow.scale.set(0.9 + this.config.brow * 0.75, 0.9 + this.config.brow * 0.2, 1);
-      leftBrow.position.x = -0.047 - (0.66 - this.config.eyeSpacing) * 0.07;
-      rightBrow.position.x = 0.047 + (0.66 - this.config.eyeSpacing) * 0.07;
     }
 
     const nose = this.root.getObjectByName('nose-part');
     if (nose instanceof THREE.Mesh) {
       nose.scale.set(
-        0.9 + this.config.nose * 0.7,
-        1.1 + (this.config.nose - 0.5) * 0.8,
-        0.9 + (this.config.nose - 0.5) * 0.7
+        0.85 + this.config.nose * 0.66,
+        0.9 + this.config.nose * 0.82,
+        0.7 + (this.config.nose - 0.5) * 0.8
       );
-      nose.position.z = 0.117 + (this.config.nose - 0.5) * 0.038;
+      nose.position.z = 0.12 + (this.config.nose - 0.5) * 0.045;
     }
 
     const mouth = this.root.getObjectByName('mouth-part');
     if (mouth instanceof THREE.Mesh) {
-      mouth.scale.set(
-        1 + (this.config.mouth - 0.5) * 0.9,
-        0.7 + (this.config.mouth - 0.5) * 0.5,
-        1
-      );
+      const mouthScaleX = 0.9 + (this.config.mouth - 0.5) * 0.9;
+      const mouthScaleY = 0.72 + (this.config.mouth - 0.5) * 0.35;
+      mouth.scale.set(mouthScaleX, mouthScaleY, 1);
+      mouth.position.y = -0.112 - (this.config.mouth - 0.5) * 0.014;
+      mouth.position.z = 0.116 + (this.config.mouth - 0.5) * 0.01;
       mouth.rotation.z = Math.PI + (this.config.mouth - 0.5) * 0.75;
     }
 
@@ -1148,7 +1425,7 @@ export class Face {
         0.62 + this.config.beard * 1.3,
         0.9 + this.config.beard * 0.45
       );
-      beard.position.set(0, -0.12 - this.config.beard * 0.04, 0.03 + this.config.beard * 0.02);
+      beard.position.set(0, -0.116 - this.config.beard * 0.04, 0.032 + this.config.beard * 0.02);
     }
 
     const stubble = this.root.getObjectByName('stubble-part');
@@ -1161,12 +1438,21 @@ export class Face {
       );
       stubble.position.set(
         0,
-        -0.086 - this.config.stubble * 0.02,
-        0.09 + this.config.stubble * 0.02
+        -0.088 - this.config.stubble * 0.02,
+        0.092 + this.config.stubble * 0.02
       );
     }
 
-    this.addHair();
+    if (!this.faceMesh || !this.faceMesh.morphTargetDictionary) {
+      return;
+    }
+
+    const browValue = Math.max(0, Math.min(1, this.config.brow ?? 0.5));
+    this.applyMorph('browInnerUp', browValue);
+    this.applyMorph('jawOpen', 0.12 * (this.config.jawWidth - 0.9));
+    this.applyMorph('mouthClose', 0.5);
+    this.applyMorph('mouthSmile_L', Math.max(0, this.config.mouth - 0.5));
+    this.applyMorph('mouthSmile_R', Math.max(0, this.config.mouth - 0.5));
   }
 }
 
@@ -1177,7 +1463,6 @@ export class Golfer {
   private attachPoints = new Map<string, THREE.Object3D>();
   private hand = new THREE.Group();
   private disc!: THREE.Mesh;
-  private hairRoot?: THREE.Group;
   private face!: Face;
   private appearance: GolferAppearance;
   private baseY = 0;
@@ -1187,67 +1472,90 @@ export class Golfer {
   private index = 0;
   private elapsed = 0;
   private releasing = false;
+  private avatarModelId: AvatarModelId = 'male';
+  private avatarModelRoot?: THREE.Group;
+  private avatarModelError?: THREE.Group;
+  private avatarModelLoading?: THREE.Group;
+  private avatarLoadToken = 0;
+  private onAvatarStatusChange?: (status: 'loading' | 'loaded' | 'error', message: string) => void;
   private sequence = SEQUENCES.backhand;
   private idleT = 0;
   private idlePhase = Math.random() * 10;
   private accessories = new Map<AccessorySlot, THREE.Group>();
 
-  constructor(look: GolferLook | Partial<GolferAppearance> = DEFAULT_LOOK) {
-    this.look = (look as GolferLook) ?? DEFAULT_LOOK;
+  constructor(look: GolferLook | PartialGolferAppearance = DEFAULT_LOOK) {
+    const input = (look as Partial<GolferLook> & PartialGolferAppearance) ?? {};
+    this.look = {
+      ...DEFAULT_LOOK,
+      ...input,
+      jersey: input.jersey ?? input.shirtColor ?? DEFAULT_LOOK.jersey,
+      accent: input.accent ?? input.accentColor ?? DEFAULT_LOOK.accent,
+      shorts: input.shorts ?? input.shortsColor ?? DEFAULT_LOOK.shorts,
+      skin: input.skin ?? input.skinTone ?? DEFAULT_LOOK.skin,
+      hair: input.hair ?? input.hairColor ?? DEFAULT_LOOK.hair,
+      hairStyle: input.hairStyle ?? DEFAULT_LOOK.hairStyle,
+      build: input.build ?? 1,
+    };
     const normalized = this.normalizeAppearance(look as Partial<GolferAppearance>);
     this.appearance = normalized;
+    this.avatarModelId = normalized.avatarModelId ?? 'male';
     this.root.scale.setScalar(GOLFER_SCALE * (this.look.build ?? 1));
     this.build();
     this.applyProfileToRig();
-    this.applyPose(THROW_SEQUENCE[0].pose, THROW_SEQUENCE[0].pose, 0);
+    this.applyPose(STAND_POSE, STAND_POSE, 0);
   }
 
-  private normalizeAppearance(input: Partial<GolferAppearance>): GolferAppearance {
-    const legacy = input as GolferLook & Partial<GolferAppearance>;
+  private normalizeAppearance(input: PartialGolferAppearance): GolferAppearance {
+    const legacy = input as Partial<GolferLook> & Partial<GolferAppearance>;
     const bodyProfile = legacy.bodyProfile ?? legacy.profile?.id ?? 'neutralLean';
-    const profile = legacy.profile ?? BODY_PROFILES[bodyProfile];
+    const presetId = legacy.facePreset ?? (bodyProfile === 'athleticFemale' ? 'female' : 'male');
+    const facePreset = FACE_PRESETS[presetId] ?? FACE_PRESETS.male;
+    const profile = { ...BODY_PROFILES[bodyProfile], ...legacy.profile };
+    const outfit = {
+      sleeveLength: legacy.sleeveLength ?? legacy.outfit?.sleeveLength ?? 1,
+      collarHeight: legacy.collarHeight ?? legacy.outfit?.collarHeight ?? 1,
+      shirtFit: legacy.shirtFit ?? legacy.outfit?.shirtFit ?? 1,
+      shortsLength: legacy.shortsLength ?? legacy.outfit?.shortsLength ?? 1,
+      pantsFit: legacy.pantsFit ?? legacy.outfit?.pantsFit ?? 0.9,
+    };
+    const face = {
+      brow: legacy.brow ?? legacy.face?.brow ?? facePreset.brow,
+      nose: legacy.nose ?? legacy.face?.nose ?? facePreset.nose,
+      eyeSpacing: legacy.eyeSpacing ?? legacy.face?.eyeSpacing ?? facePreset.eyeSpacing,
+      mouth: legacy.mouth ?? legacy.face?.mouth ?? facePreset.mouth,
+      beard: legacy.beard ?? legacy.face?.beard ?? facePreset.beard,
+      stubble: legacy.stubble ?? legacy.face?.stubble ?? facePreset.stubble,
+    };
+
     const base = buildCharacterAppearance({
+      ...legacy,
       bodyProfile,
       profile,
-      facePreset: legacy.facePreset,
-      skinTone: legacy.skinTone ?? legacy.skin ?? SKIN,
-      hairStyle: (legacy.hairStyle as HairStyle) ?? 'shortCrop',
-      hairColor: legacy.hairColor ?? legacy.hair ?? HAIR,
+      facePreset: presetId,
+      face,
+      outfit,
+      skinTone: legacy.skinTone ?? legacy.skin ?? facePreset.skinTone,
+      hairStyle: (legacy.hairStyle as HairStyle) ?? facePreset.hairStyle,
+      hairColor: legacy.hairColor ?? legacy.hair ?? facePreset.hairColor,
       shirtColor: legacy.shirtColor ?? legacy.jersey ?? JERSEY,
       shortsColor: legacy.shortsColor ?? legacy.shorts ?? SHORTS,
       shoeColor: legacy.shoeColor ?? SHOE,
-      accentColor: legacy.accentColor ?? legacy.accent ?? 0x8e2f20,
-      brow: legacy.brow ?? 0.5,
-      nose: legacy.nose ?? 0.5,
-      eyeSpacing: legacy.eyeSpacing ?? 0.5,
-      mouth: legacy.mouth ?? 0.5,
-      beard: legacy.beard ?? 0,
-      stubble: legacy.stubble ?? 0,
-      sleeveLength: legacy.sleeveLength ?? 1,
-      collarHeight: legacy.collarHeight ?? 1,
-      shirtFit: legacy.shirtFit ?? 1,
-      shortsLength: legacy.shortsLength ?? 1,
-      pantsFit: legacy.pantsFit ?? 0.9,
+      accentColor: legacy.accentColor ?? legacy.accent ?? 0xd72638,
+      jerseyNumber: legacy.jerseyNumber ?? 1,
+      brow: face.brow,
+      nose: face.nose,
+      eyeSpacing: face.eyeSpacing,
+      mouth: face.mouth,
+      beard: face.beard,
+      stubble: face.stubble,
+      sleeveLength: outfit.sleeveLength,
+      collarHeight: outfit.collarHeight,
+      shirtFit: outfit.shirtFit,
+      shortsLength: outfit.shortsLength,
+      pantsFit: outfit.pantsFit,
     });
 
-    return {
-      ...base,
-      outfit: {
-        sleeveLength: legacy.sleeveLength ?? base.outfit.sleeveLength,
-        collarHeight: legacy.collarHeight ?? base.outfit.collarHeight,
-        shirtFit: legacy.shirtFit ?? base.outfit.shirtFit,
-        shortsLength: legacy.shortsLength ?? base.outfit.shortsLength,
-        pantsFit: legacy.pantsFit ?? base.outfit.pantsFit,
-      },
-      face: {
-        brow: legacy.brow ?? base.face.brow,
-        nose: legacy.nose ?? base.face.nose,
-        eyeSpacing: legacy.eyeSpacing ?? base.face.eyeSpacing,
-        mouth: legacy.mouth ?? base.face.mouth,
-        beard: legacy.beard ?? base.face.beard,
-        stubble: legacy.stubble ?? base.face.stubble,
-      },
-    };
+    return base;
   }
 
   private joint(name: JointName, parent: THREE.Object3D, position: THREE.Vector3): THREE.Group {
@@ -1260,6 +1568,16 @@ export class Golfer {
 
   private build() {
     const look = this.look;
+    this.root.clear();
+    this.joints.clear();
+    this.attachPoints.clear();
+    this.accessories.clear();
+
+    if (this.avatarModelId && AVATAR_MODEL_URLS[this.avatarModelId]) {
+      this.loadModelAvatar(this.avatarModelId);
+      return;
+    }
+
     const hips = this.joint('hips', this.root, new THREE.Vector3(0, 0.92, 0));
     const pelvis = limb(0.22, 0.17, this.appearance.shortsColor);
     pelvis.name = 'pelvis-part';
@@ -1269,21 +1587,24 @@ export class Golfer {
     const torso = this.joint('torso', hips, new THREE.Vector3(0, 0.02, 0));
     const chest = limb(0.42, 0.19, this.appearance.shirtColor);
     chest.name = 'torso-part';
+    chest.material = createJerseyMaterial(this.appearance);
     chest.geometry.translate(0, 0.62, 0);
-    chest.scale.set(1.04, 1, 0.78);
+    chest.scale.set(0.98, 1, 0.76);
     torso.add(chest);
 
-    const collar = limb(0.1, 0.185, look.accent);
+    const accentColor = this.appearance.accentColor ?? look.accent ?? DEFAULT_LOOK.accent;
+    const collar = limb(0.1, 0.185, accentColor);
     collar.name = 'collar-part';
     collar.geometry.translate(0, 0.78, 0);
-    collar.scale.set(1.04, 1, 0.78);
+    collar.scale.set(1.0, 1, 0.74);
     torso.add(collar);
 
     const placket = new THREE.Mesh(
-      new THREE.BoxGeometry(0.06, 0.34, 0.02),
-      new THREE.MeshStandardMaterial({ color: look.accent, roughness: 0.8 })
+      new THREE.BoxGeometry(0.038, 0.22, 0.016),
+      new THREE.MeshStandardMaterial({ color: accentColor, roughness: 0.8 })
     );
-    placket.position.set(0, 0.56, 0.149);
+    placket.name = 'placket-part';
+    placket.position.set(0, 0.52, 0.148);
     torso.add(placket);
 
     const neck = new THREE.Mesh(
@@ -1324,6 +1645,7 @@ export class Golfer {
       const elbowName: JointName = isRight ? 'elbowR' : 'elbowL';
       const shoulder = this.joint(shoulderName, torso, new THREE.Vector3(side * 0.22, 0.62, 0));
       const sleeve = limb(0.26, 0.07, this.appearance.shirtColor);
+      sleeve.material = createJerseyMaterial(this.appearance);
       shoulder.add(sleeve);
 
       const upperArm = new THREE.Mesh(
@@ -1393,97 +1715,11 @@ export class Golfer {
     this.equipAccessory('disc', { visible: true });
   }
 
-  private addHair(head: THREE.Group) {
-    if (this.hairRoot) {
-      this.hairRoot.removeFromParent();
-    }
-
-    const hairRoot = new THREE.Group();
-    hairRoot.name = 'hair-root';
-    head.add(hairRoot);
-    this.hairRoot = hairRoot;
-
-    const hairColor = this.appearance.hairColor;
-    const hairMaterial = new THREE.MeshStandardMaterial({ color: hairColor, roughness: 0.9 });
-
-    if (this.appearance.hairStyle === 'bald') {
-      return;
-    }
-
-    if (this.appearance.hairStyle === 'ponytail') {
-      const crown = new THREE.Mesh(new THREE.SphereGeometry(0.138, 12, 10), hairMaterial);
-      crown.scale.set(1.12, 0.82, 1.04);
-      crown.position.set(0, 0.06, 0.02);
-      hairRoot.add(crown);
-
-      const tail = limb(0.29, 0.07, hairColor);
-      tail.rotation.x = -1.1;
-      tail.position.set(0, -0.02, 0.12);
-      hairRoot.add(tail);
-      return;
-    }
-
-    if (this.appearance.hairStyle === 'bun') {
-      const bun = new THREE.Mesh(new THREE.SphereGeometry(0.078, 12, 10), hairMaterial);
-      bun.position.set(0, 0.02, -0.08);
-      hairRoot.add(bun);
-
-      const crown = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 10), hairMaterial);
-      crown.scale.set(1.18, 0.68, 1.08);
-      crown.position.set(0, 0.06, 0.02);
-      hairRoot.add(crown);
-      return;
-    }
-
-    if (this.appearance.hairStyle === 'buzzCut') {
-      const top = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 10), hairMaterial);
-      top.scale.set(1.28, 0.72, 1.12);
-      top.position.set(0, 0.06, 0.02);
-      hairRoot.add(top);
-
-      const fringe = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.05, 0.08), hairMaterial);
-      fringe.position.set(0, 0.02, 0.1);
-      hairRoot.add(fringe);
-      return;
-    }
-
-    if (this.appearance.hairStyle === 'undercut') {
-      const top = new THREE.Mesh(new THREE.SphereGeometry(0.126, 12, 10), hairMaterial);
-      top.scale.set(1.28, 0.82, 1.14);
-      top.position.set(0, 0.06, 0.02);
-      hairRoot.add(top);
-
-      const sideLeft = new THREE.Mesh(new THREE.SphereGeometry(0.055, 10, 8), hairMaterial);
-      sideLeft.scale.set(0.94, 0.74, 1.14);
-      sideLeft.position.set(-0.12, 0.0, 0.04);
-      hairRoot.add(sideLeft);
-
-      const sideRight = sideLeft.clone();
-      sideRight.position.x = 0.12;
-      hairRoot.add(sideRight);
-      return;
-    }
-
-    if (this.appearance.hairStyle === 'sidePart') {
-      const top = new THREE.Mesh(new THREE.SphereGeometry(0.128, 12, 10), hairMaterial);
-      top.scale.set(1.2, 0.72, 1.12);
-      top.position.set(0, 0.07, 0.02);
-      hairRoot.add(top);
-
-      const sweep = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.06, 0.22), hairMaterial);
-      sweep.position.set(0.14, 0.0, 0.1);
-      sweep.rotation.z = -0.9;
-      hairRoot.add(sweep);
-      return;
-    }
-
-    const crop = new THREE.Mesh(new THREE.SphereGeometry(0.135, 12, 10), hairMaterial);
-    crop.scale.set(1.12, 0.76, 1.06);
-    crop.position.set(0, 0.06, 0.02);
-    hairRoot.add(crop);
-  }
-
   private applyProfileToRig() {
+    if (this.avatarModelRoot || this.avatarModelError) {
+      return;
+    }
+
     const profile =
       this.appearance.profile ?? BODY_PROFILES[this.appearance.bodyProfile ?? 'neutralLean'];
 
@@ -1536,6 +1772,203 @@ export class Golfer {
     });
   }
 
+  private findModelBone(root: THREE.Object3D, name: string): THREE.Object3D | undefined {
+    let found: THREE.Object3D | undefined;
+    root.traverse((child) => {
+      if (found) {
+        return;
+      }
+      if (child.name === name) {
+        found = child;
+      }
+    });
+    return found;
+  }
+
+  setAvatarStateListener(
+    listener: ((status: 'loading' | 'loaded' | 'error', message: string) => void) | undefined
+  ) {
+    this.onAvatarStatusChange = listener;
+  }
+
+  private loadModelAvatar(modelId: AvatarModelId) {
+    const url = AVATAR_MODEL_URLS[modelId];
+    if (!url) {
+      return;
+    }
+
+    const token = ++this.avatarLoadToken;
+    console.info(`[Golfer avatar] ${modelId} load start`, {
+      url,
+      token,
+      rootChildren: this.root.children.length,
+    });
+    this.onAvatarStatusChange?.('loading', `Loading ${modelId} avatar…`);
+    this.avatarModelError?.removeFromParent();
+    this.avatarModelError = undefined;
+    this.avatarModelRoot = undefined;
+    this.avatarModelLoading = new THREE.Group();
+    const label = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: (() => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 512;
+          canvas.height = 128;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#121821';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = '#3aa8ff';
+            ctx.lineWidth = 8;
+            ctx.strokeRect(18, 18, canvas.width - 36, canvas.height - 36);
+            ctx.fillStyle = '#f4f7fa';
+            ctx.font = 'bold 30px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('Loading avatar…', canvas.width / 2, canvas.height / 2);
+          }
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.needsUpdate = true;
+          return texture;
+        })(),
+        transparent: true,
+        depthTest: false,
+      })
+    );
+    label.scale.set(1.8, 0.45, 1);
+    label.position.set(0, 1.1, 0);
+    this.avatarModelLoading.add(label);
+    this.root.add(this.avatarModelLoading);
+
+    const loader = new GLTFLoader();
+    loader.load(
+      url,
+      (gltf) => {
+        if (token !== this.avatarLoadToken) {
+          return;
+        }
+
+        const model = gltf.scene.clone(true);
+        model.name = `${modelId}-avatar`;
+        model.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+        const previous = this.avatarModelRoot;
+        if (previous) {
+          previous.removeFromParent();
+        }
+
+        this.avatarModelLoading?.removeFromParent();
+        this.avatarModelLoading = undefined;
+        this.avatarModelRoot = model;
+        this.avatarModelError = undefined;
+        this.root.add(model);
+        model.position.set(0, -0.45, 0);
+        model.rotation.y = 0;
+        model.scale.setScalar(1.18);
+        model.visible = true;
+        console.info(`[Golfer avatar] ${modelId} load success`, {
+          token,
+          meshCount: model.children.length,
+          boundingBox: new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3()).toArray(),
+        });
+        this.onAvatarStatusChange?.('loaded', `${modelId} avatar ready`);
+
+        const hand =
+          this.findModelBone(model, 'RightHand') ?? this.findModelBone(model, 'rightHand');
+        const head = this.findModelBone(model, 'Head') ?? this.findModelBone(model, 'head');
+        const back =
+          this.findModelBone(model, 'Spine') ?? this.findModelBone(model, 'hips') ?? model;
+
+        if (hand) {
+          this.attachPoints.set('rightHand', hand);
+          const disc = createDiscVisual(0xe03a2f);
+          disc.position.set(0.14, 0.1, 0.02);
+          disc.rotation.z = Math.PI / 2;
+          disc.scale.setScalar(0.82);
+          hand.add(disc);
+          this.disc = disc;
+        }
+
+        if (head) {
+          this.attachPoints.set('head', head);
+        }
+
+        this.attachPoints.set('back', back);
+        this.attachPoints.set(
+          'leftHand',
+          this.findModelBone(model, 'LeftHand') ?? this.findModelBone(model, 'leftHand') ?? model
+        );
+        this.attachPoints.set('rightHandAlt', hand ?? model);
+
+        this.root.position.y = 0;
+      },
+      undefined,
+      (error) => {
+        if (token !== this.avatarLoadToken) {
+          return;
+        }
+        console.error(`[Golfer avatar] ${modelId} load failed`, error);
+        this.onAvatarStatusChange?.('error', `Avatar load failed: ${modelId}`);
+        this.avatarModelLoading?.removeFromParent();
+        this.avatarModelLoading = undefined;
+        this.avatarModelRoot = undefined;
+        this.avatarModelError = new THREE.Group();
+        const label = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: (() => {
+              const canvas = document.createElement('canvas');
+              canvas.width = 512;
+              canvas.height = 128;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.fillStyle = '#1a1a1a';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#f8f8f8';
+                ctx.font = 'bold 36px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('Avatar load failed', canvas.width / 2, canvas.height / 2);
+              }
+              const texture = new THREE.CanvasTexture(canvas);
+              texture.needsUpdate = true;
+              return texture;
+            })(),
+            transparent: true,
+            depthTest: false,
+          })
+        );
+        label.scale.set(1.8, 0.45, 1);
+        label.position.set(0, 1.1, 0);
+        this.avatarModelError.add(label);
+        this.root.add(this.avatarModelError);
+      }
+    );
+  }
+
+  private clearAvatarModelContent() {
+    this.avatarModelLoading?.removeFromParent();
+    this.avatarModelLoading = undefined;
+    this.avatarModelError?.removeFromParent();
+    this.avatarModelError = undefined;
+    this.avatarModelRoot?.removeFromParent();
+    this.avatarModelRoot = undefined;
+  }
+
+  setAvatarModelId(modelId: AvatarModelId) {
+    this.avatarModelId = modelId;
+    this.appearance.avatarModelId = modelId;
+    this.attachPoints.clear();
+    this.accessories.clear();
+    this.joints.clear();
+    this.clearAvatarModelContent();
+    this.root.visible = true;
+    this.loadModelAvatar(modelId);
+  }
+
   setAppearance(options: Partial<GolferAppearance>) {
     const merged = {
       ...this.appearance,
@@ -1546,6 +1979,9 @@ export class Golfer {
       options.profile ?? BODY_PROFILES[options.bodyProfile ?? merged.bodyProfile ?? 'neutralLean'];
     merged.profile = nextBodyProfile;
     merged.bodyProfile = nextBodyProfile.id;
+    if (options.avatarModelId) {
+      this.setAvatarModelId(options.avatarModelId);
+    }
 
     const outfit = {
       ...this.appearance.outfit,
@@ -1626,6 +2062,7 @@ export class Golfer {
 
   setHeading(yaw: number) {
     this.root.userData.headingYaw = yaw;
+    this.root.rotation.y = yaw;
   }
 
   get isThrowing() {
@@ -1760,7 +2197,7 @@ export class Golfer {
   private idle(dt: number) {
     this.idleT += dt;
 
-    const setup = this.sequence[0].pose;
+    const setup = STAND_POSE;
     this.applyPose(setup, setup, 0);
 
     const t = this.idleT + this.idlePhase;

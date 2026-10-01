@@ -593,8 +593,10 @@ body {
 .appearance-modal-header {
   grid-column: 1 / -1;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .appearance-modal-title {
@@ -610,8 +612,53 @@ body {
   color: #9fb3cc;
 }
 
+.appearance-modal-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+}
+
 .appearance-modal-title strong {
   font-size: clamp(1.1rem, 2vw, 1.6rem);
+}
+
+.appearance-header-preset-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.appearance-header-preset {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+  color: #edf4ff;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.appearance-header-preset.is-selected {
+  background: rgba(255, 213, 74, 0.18);
+  border-color: rgba(255, 213, 74, 0.6);
+  color: #ffd54a;
+}
+
+.appearance-header-preset:focus-visible,
+.appearance-mode-button:focus-visible,
+.appearance-button:focus-visible,
+.appearance-modal-close:focus-visible {
+  outline: 2px solid rgba(255, 213, 74, 0.8);
+  outline-offset: 2px;
 }
 
 .appearance-modal-close {
@@ -621,6 +668,70 @@ body {
   border-radius: 999px;
   width: 36px;
   height: 36px;
+  cursor: pointer;
+}
+
+.appearance-version-badge,
+.appearance-isolated-face-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 213, 74, 0.35);
+  background: rgba(255, 213, 74, 0.1);
+  color: #ffd54a;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.appearance-isolated-face-badge {
+  display: none;
+}
+
+.face-debug-panel {
+  display: grid;
+  gap: 8px;
+  padding: 12px 12px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.02));
+}
+
+.face-debug-title {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #9fb3cc;
+}
+
+.face-debug-control {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  color: #edf4ff;
+  background: rgba(10, 17, 28, 0.26);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.face-debug-control--primary {
+  background: rgba(255, 213, 74, 0.08);
+  border-color: rgba(255, 213, 74, 0.2);
+}
+
+.face-debug-control span {
+  font-size: 12px;
+  color: #dfeafd;
+}
+
+.face-debug-control input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: #ffd54a;
   cursor: pointer;
 }
 
@@ -746,16 +857,37 @@ body {
 .appearance-control input[type='color'],
 .appearance-select {
   width: 100%;
-  min-height: 38px;
+  min-height: 32px;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 213, 74, 0.28);
+  background: rgba(10, 17, 28, 0.96);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 12px 22px rgba(0, 0, 0, 0.22);
   color: #edf4ff;
-  padding: 7px 10px;
+  padding: 6px 30px 6px 10px;
+  line-height: 1.2;
 }
 
 .appearance-select {
   grid-column: 1 / -1;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #dfeafd 50%),
+    linear-gradient(135deg, #dfeafd 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) calc(50% - 2px),
+    calc(100% - 11px) calc(50% - 2px);
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.appearance-select option {
+  background: #0b1726;
+  color: #edf4ff;
 }
 
 .appearance-modal-footer {
@@ -805,6 +937,14 @@ body {
   .appearance-modal {
     grid-template-columns: 1fr;
     width: min(92vw, 560px);
+  }
+
+  .appearance-modal-header {
+    align-items: center;
+  }
+
+  .appearance-modal-close {
+    flex-shrink: 0;
   }
 
   .appearance-modal-footer {
