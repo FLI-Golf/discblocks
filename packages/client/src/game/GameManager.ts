@@ -87,6 +87,7 @@ export class GameManager {
     isRoller: boolean;
   } | null = null;
   private releasePoint = new THREE.Vector3();
+  private hudHideTimer = 0;
 
   /** Each player's disc stays on the ground to mark their lie. */
   private lieDiscs = new Map<number, number>();
@@ -464,7 +465,15 @@ export class GameManager {
     return state && this.hole.isPutting(state) ? 'putt' : selection.style.animation;
   }
 
+  get shouldHideHud(): boolean {
+    return this.activeDisc !== null || this.hudHideTimer > 0;
+  }
+
   update(dt: number) {
+    if (this.hudHideTimer > 0) {
+      this.hudHideTimer = Math.max(0, this.hudHideTimer - dt);
+    }
+
     let released = false;
     for (const golfer of this.golfers) {
       if (golfer.update(dt)) {
@@ -669,6 +678,7 @@ export class GameManager {
     }
 
     this.activeDisc = null;
+    this.hudHideTimer = 0.8;
 
     const lie = {
       x: Transform.x[active.entity],

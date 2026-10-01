@@ -944,8 +944,8 @@ export class Scene {
     const distance = Math.hypot(dx, dz) || 1;
 
     // Short shots pull the camera in tight; long drives sit further back.
-    const back = THREE.MathUtils.clamp(distance * 0.42, 13, 34);
-    const height = THREE.MathUtils.clamp(distance * 0.16, 5.5, 13);
+    const back = THREE.MathUtils.clamp(distance * 0.46, 16, 38);
+    const height = THREE.MathUtils.clamp(distance * 0.17, 6.2, 14);
 
     const limitX = COURSE.arenaHalfWidth - 3;
     const minZ = COURSE.arenaBackZ + 6;

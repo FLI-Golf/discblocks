@@ -97,6 +97,7 @@ async function main() {
     }
 
     banner.classList.toggle('is-visible', scene.isFlyingOver);
+    app.classList.toggle('is-cinematic-ui', gameManager.shouldHideHud);
     windCard.update(scene.windHeading, scene.windSpeedMph);
 
     requestAnimationFrame(gameLoop);

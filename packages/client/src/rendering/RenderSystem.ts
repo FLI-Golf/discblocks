@@ -4,7 +4,7 @@ import { transformQuery } from '@/core/ecs';
 import { COURSE, FEET_PER_UNIT } from '@/game/course';
 import { PLAYING_TEAMS, type TeamResult } from '@/game/teams';
 import * as THREE from 'three';
-import { Scene } from './Scene';
+import type { Scene } from './Scene';
 
 interface MeshComponent {
   mesh: THREE.Object3D;

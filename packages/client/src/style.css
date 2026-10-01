@@ -606,7 +606,19 @@ body {
   transform: translateY(-54px);
 }
 
+#app.is-cinematic-ui #left-stack,
+#app.is-cinematic-ui #bag,
+#app.is-cinematic-ui #controls {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 #left-stack,
-#bag {
-  transition: transform 0.3s ease;
+#bag,
+#controls {
+  transition:
+    transform 0.3s ease,
+    opacity 0.2s ease,
+    visibility 0.2s ease;
 }
