@@ -10,6 +10,7 @@ import { GroupPanel } from './ui/GroupPanel';
 import { WindCard } from './ui/WindCard';
 import { Ticker } from './ui/Ticker';
 import { HoleCard } from './ui/HoleCard';
+import { LocalStorageAppearanceRepository } from './game/appearanceRepository';
 import { pipe } from 'bitecs';
 
 async function main() {
@@ -26,8 +27,10 @@ async function main() {
   const scene = new Scene(canvas);
   initRenderSystem(scene);
 
+  const appearanceRepository = new LocalStorageAppearanceRepository();
+
   // Initialize game
-  const gameManager = new GameManager();
+  const gameManager = new GameManager(appearanceRepository);
   gameManager.reset();
 
   // Create systems pipeline
@@ -35,22 +38,18 @@ async function main() {
 
   const app = document.querySelector<HTMLElement>('#app')!;
 
-  const bag = new Bag(
-    app,
-    (selection) => {
-      gameManager.previewDisc(selection.disc.color);
-    },
-    (appearance, accessories) => {
-      gameManager.setCurrentGolferAppearance(appearance, accessories);
-    }
-  );
+  const bag = new Bag(app, (selection) => {
+    gameManager.previewDisc(selection.disc.color);
+  });
 
   const leftStack = document.createElement('div');
   leftStack.id = 'left-stack';
   app.appendChild(leftStack);
 
   const holeCard = new HoleCard(leftStack, gameManager.hole, () => scene.startFlyover());
-  const group = new GroupPanel(leftStack, gameManager.hole);
+  const group = new GroupPanel(leftStack, gameManager.hole, (playerId, appearance, accessories) => {
+    gameManager.setPlayerAppearance(playerId, appearance, accessories);
+  });
   gameManager.onHoleChange = () => {
     group.setHole(gameManager.hole);
     holeCard.setHole(gameManager.hole);

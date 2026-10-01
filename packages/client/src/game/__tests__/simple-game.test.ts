@@ -8,7 +8,16 @@ import {
   delayedCurveProgress,
   releaseBankQuaternion,
 } from '@/game/discs';
-import { Golfer } from '@/rendering/Golfer';
+import {
+  BODY_PROFILES,
+  FACE_PRESETS,
+  buildCharacterAppearance,
+  Golfer,
+  type CharacterAppearance,
+} from '@/rendering/Golfer';
+import { LocalStorageAppearanceRepository } from '@/game/appearanceRepository';
+import { GroupPanel } from '@/ui/GroupPanel';
+import { Hole } from '@/game/hole';
 
 describe('Game Components', () => {
   let world: any;
@@ -143,5 +152,145 @@ describe('Game Components', () => {
     expect(golfer.root.getObjectByName('cap-accessory')).toBeUndefined();
 
     golfer.dispose();
+  });
+
+  it('should expose distinct body profiles for male, female, and neutral presets', () => {
+    expect(BODY_PROFILES.athleticMale.shoulderWidth).toBeGreaterThan(
+      BODY_PROFILES.neutralLean.shoulderWidth + 0.28
+    );
+    expect(
+      BODY_PROFILES.athleticFemale.hipWidth - BODY_PROFILES.athleticMale.hipWidth
+    ).toBeGreaterThan(0.3);
+    expect(
+      BODY_PROFILES.athleticMale.jawWidth - BODY_PROFILES.athleticFemale.jawWidth
+    ).toBeGreaterThan(0.45);
+    expect(BODY_PROFILES.neutralLean.headScale).toBeLessThan(
+      BODY_PROFILES.athleticFemale.headScale - 0.06
+    );
+  });
+
+  it('should default a fresh face to the male preset and keep the face-specific controls aligned to that base', () => {
+    const fresh = buildCharacterAppearance({});
+    expect(fresh.facePreset).toBe('male');
+    expect(fresh.face.brow).toBeCloseTo(FACE_PRESETS.male.brow, 5);
+    expect(fresh.face.eyeSpacing).toBeCloseTo(FACE_PRESETS.male.eyeSpacing, 5);
+    expect(fresh.profile.jawWidth).toBeCloseTo(BODY_PROFILES.neutralLean.jawWidth, 5);
+  });
+
+  it('should use distinct default face presets for male and female profiles', () => {
+    const male = buildCharacterAppearance({ bodyProfile: 'athleticMale' });
+    const female = buildCharacterAppearance({ bodyProfile: 'athleticFemale' });
+
+    expect(male.profile.jawWidth).toBeGreaterThan(female.profile.jawWidth);
+    expect(male.face.brow).toBeGreaterThan(female.face.brow);
+    expect(male.face.eyeSpacing).toBeLessThan(female.face.eyeSpacing);
+    expect(male.face.nose).toBeGreaterThan(female.face.nose);
+    expect(male.face.mouth).toBeGreaterThan(female.face.mouth);
+  });
+
+  it('should build explicit appearance configs without overwriting the shared rig', () => {
+    const appearance = buildCharacterAppearance({
+      bodyProfile: 'athleticFemale',
+      hairStyle: 'bun',
+      beard: 0,
+      stubble: 0,
+      shirtColor: 0x2244aa,
+      shortsColor: 0x111111,
+    }) as CharacterAppearance;
+
+    expect(appearance.bodyProfile).toBe('athleticFemale');
+    expect(appearance.profile.shoulderWidth).toBeGreaterThan(0);
+    expect(appearance.hairStyle).toBe('bun');
+    expect(appearance.outfit.sleeveLength).toBeGreaterThan(0);
+
+    const golfer = new Golfer({
+      ...appearance,
+      jersey: appearance.shirtColor,
+      accent: 0x334455,
+      shorts: appearance.shortsColor,
+      skin: appearance.skinTone,
+      hair: appearance.hairColor,
+      hairStyle: appearance.hairStyle,
+      build: 1,
+    });
+
+    expect(golfer.root.getObjectByName('hair-root')).not.toBeNull();
+    golfer.dispose();
+  });
+
+  it('should keep saved appearances isolated by stable player id', () => {
+    const repository = new LocalStorageAppearanceRepository();
+
+    repository.save('player-1', {
+      version: 1,
+      appearance: { hairStyle: 'bald', shirtColor: 0x112233 },
+      accessories: { cap: true, bag: true, disc: true },
+      savedAt: Date.now(),
+    });
+
+    repository.save('player-2', {
+      version: 1,
+      appearance: { hairStyle: 'ponytail', shirtColor: 0x445566 },
+      accessories: { cap: false, bag: true },
+      savedAt: Date.now(),
+    });
+
+    expect(repository.load('player-1')?.appearance.hairStyle).toBe('bald');
+    expect(repository.load('player-2')?.appearance.hairStyle).toBe('ponytail');
+    expect(repository.load('player-1')?.accessories.cap).toBe(true);
+    expect(repository.load('player-2')?.accessories.cap).toBe(false);
+  });
+
+  it('should launch the player modal from Change Look and open on the face controls by default', () => {
+    document.body.innerHTML = '';
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    const hole = new Hole({ x: 0, y: 0, z: 0 }, 3);
+    new GroupPanel(container, hole);
+
+    const lookButton = container.querySelector('.group-look-button') as HTMLButtonElement | null;
+    expect(lookButton).not.toBeNull();
+    expect(container.querySelector('.group-face-button')).toBeNull();
+
+    lookButton!.click();
+
+    const modalTitle = document.querySelector('.appearance-modal-title span');
+    expect(modalTitle?.textContent).toBe('Change Look');
+    expect(
+      document
+        .querySelector('.appearance-mode-toggle [data-mode="face"]')
+        ?.classList.contains('is-active')
+    ).toBe(true);
+    expect(document.querySelector('.appearance-control')?.textContent).toContain('Skin tone');
+  });
+
+  it('should not initialize a WebGL context twice on the preview canvas', () => {
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+    const calls: Array<{ canvas: HTMLCanvasElement; type: string }> = [];
+
+    HTMLCanvasElement.prototype.getContext = function (type: string) {
+      calls.push({ canvas: this, type });
+      return null;
+    };
+
+    try {
+      document.body.innerHTML = '';
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+
+      const hole = new Hole({ x: 0, y: 0, z: 0 }, 3);
+      new GroupPanel(container, hole);
+      (container.querySelector('.group-look-button') as HTMLButtonElement | null)?.click();
+
+      const previewCanvas = document.querySelector(
+        '.appearance-preview-canvas'
+      ) as HTMLCanvasElement | null;
+      const previewCalls = calls.filter((call) => call.canvas === previewCanvas).length;
+      expect(previewCanvas).not.toBeNull();
+      expect(previewCalls).toBeLessThanOrEqual(1);
+    } finally {
+      HTMLCanvasElement.prototype.getContext = originalGetContext;
+    }
   });
 });

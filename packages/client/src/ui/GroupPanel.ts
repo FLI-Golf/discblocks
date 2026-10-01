@@ -1,6 +1,12 @@
-import { formatScore } from '@/game/players';
+import { formatScore, type Player } from '@/game/players';
 import { FEET_PER_UNIT } from '@/game/course';
 import type { Hole, PlayerState } from '@/game/hole';
+import { AppearanceModal } from '@/ui/AppearanceModal';
+import {
+  DEFAULT_GOLFER_APPEARANCE,
+  type AccessorySlot,
+  type GolferAppearance,
+} from '@/rendering/Golfer';
 
 function statusLabel(state: PlayerState, hole: Hole): string {
   if (state.holed) {
@@ -15,9 +21,23 @@ function statusLabel(state: PlayerState, hole: Hole): string {
 export class GroupPanel {
   private root: HTMLElement;
   private hole: Hole;
+  private readonly onPlayerAppearanceChange?: (
+    playerId: string,
+    appearance: Partial<GolferAppearance>,
+    accessories: Partial<Record<AccessorySlot, boolean>>
+  ) => void;
 
-  constructor(container: HTMLElement, hole: Hole) {
+  constructor(
+    container: HTMLElement,
+    hole: Hole,
+    onPlayerAppearanceChange?: (
+      playerId: string,
+      appearance: Partial<GolferAppearance>,
+      accessories: Partial<Record<AccessorySlot, boolean>>
+    ) => void
+  ) {
     this.hole = hole;
+    this.onPlayerAppearanceChange = onPlayerAppearanceChange;
     this.root = document.createElement('div');
     this.root.id = 'group';
     container.appendChild(this.root);
@@ -57,12 +77,17 @@ export class GroupPanel {
       order.className = 'group-order';
       order.textContent = String(i + 1);
 
+      const main = document.createElement('button');
+      main.type = 'button';
+      main.className = 'group-player-main';
+      main.setAttribute('aria-label', `Open look editor for ${player.name}`);
+      main.addEventListener('click', () => this.openEditor(player, 'look'));
+
       const avatar = document.createElement('img');
       avatar.className = 'group-avatar';
       avatar.src = player.avatar;
       avatar.alt = '';
       avatar.loading = 'lazy';
-      // The avatars are hosted remotely; hide broken images rather than show the icon.
       avatar.addEventListener('error', () => {
         avatar.style.visibility = 'hidden';
       });
@@ -84,6 +109,7 @@ export class GroupPanel {
       );
 
       details.append(name, meta);
+      main.append(avatar, details);
 
       const right = document.createElement('span');
       right.className = 'group-right';
@@ -98,11 +124,48 @@ export class GroupPanel {
       status.dataset.state = state.holed ? 'in' : 'out';
       status.textContent = statusLabel(state, hole);
 
-      right.append(score, status);
-      item.append(order, avatar, details, right);
+      const actions = document.createElement('div');
+      actions.className = 'group-actions';
+
+      const lookButton = document.createElement('button');
+      lookButton.type = 'button';
+      lookButton.className = 'group-look-button';
+      lookButton.textContent = 'Change Look';
+      lookButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.openEditor(player, 'look');
+      });
+
+      actions.append(lookButton);
+      right.append(score, status, actions);
+      item.append(order, main, right);
       list.appendChild(item);
     });
 
     this.root.appendChild(list);
+  }
+
+  private openEditor(player: Player, mode: 'face' | 'look') {
+    const appearance = { ...DEFAULT_GOLFER_APPEARANCE, ...(player.look.appearance ?? {}) };
+    const modal = new AppearanceModal(document.body, {
+      playerName: player.name,
+      mode,
+      initialAppearance: appearance,
+      initialAccessories: { cap: true, bag: true, glasses: false, disc: true },
+      onApply: (nextAppearance, accessories) => {
+        this.onPlayerAppearanceChange?.(player.id, nextAppearance, accessories);
+      },
+      onCancel: () => undefined,
+      onReset: (nextAppearance) => {
+        this.onPlayerAppearanceChange?.(player.id, nextAppearance, {
+          cap: true,
+          bag: true,
+          glasses: false,
+          disc: true,
+        });
+      },
+    });
+    void modal;
   }
 }

@@ -30,13 +30,22 @@ import {
   createTorusMesh,
   createCapsuleMesh,
 } from '@/rendering/RenderSystem';
-import { Golfer, type GolferAppearance, type AccessorySlot } from '@/rendering/Golfer';
+import {
+  DEFAULT_GOLFER_APPEARANCE,
+  Golfer,
+  type GolferAppearance,
+  type AccessorySlot,
+} from '@/rendering/Golfer';
 import { getPhysicsWorld } from '@/physics/init';
 import { unregisterPhysicsBody, entityToRigidBody } from '@/physics/PhysicsSystem';
 import { COURSE, BEACON_FROM_UNITS } from './course';
 import { Hole } from './hole';
 import { GROUP } from './players';
 import { playChains } from './audio';
+import {
+  LocalStorageAppearanceRepository,
+  type PlayerAppearanceRepository,
+} from './appearanceRepository';
 import {
   DELAYED_CURVE_CONFIG,
   delayedCurveDirection,
@@ -80,7 +89,9 @@ const GROUND_CONTACT_Y = DISC_RADIUS + 0.4;
 export class GameManager {
   private entities: number[] = [];
   private ballTimers = new Set<ReturnType<typeof setTimeout>>();
-  private golfers = GROUP.map((player) => new Golfer(player.look));
+  private readonly appearanceRepository: PlayerAppearanceRepository;
+  private readonly golfersById = new Map<string, Golfer>();
+  private golfers: Golfer[] = [];
   private pendingThrow: {
     direction: { x: number; y: number; z: number };
     selection: ThrowSelection;
@@ -107,7 +118,33 @@ export class GameManager {
   hole = new Hole({ x: 0, y: 0, z: COURSE.basketZ });
   onHoleChange: (() => void) | null = null;
 
-  constructor() {
+  constructor(
+    appearanceRepository: PlayerAppearanceRepository = new LocalStorageAppearanceRepository()
+  ) {
+    this.appearanceRepository = appearanceRepository;
+
+    this.golfers = GROUP.map((player) => {
+      const saved = this.appearanceRepository.load(player.id);
+      if (saved && saved.appearance) {
+        const base = player.look.appearance ?? { ...DEFAULT_GOLFER_APPEARANCE };
+        player.look.appearance = {
+          ...base,
+          ...saved.appearance,
+          outfit: { ...base.outfit, ...(saved.appearance.outfit ?? {}) },
+          face: { ...base.face, ...(saved.appearance.face ?? {}) },
+        };
+        player.look.hairStyle = player.look.appearance.hairStyle;
+        player.look.hair = player.look.appearance.hairColor;
+        player.look.skin = player.look.appearance.skinTone;
+        player.look.jersey = player.look.appearance.shirtColor;
+        player.look.shorts = player.look.appearance.shortsColor;
+      }
+
+      const golfer = new Golfer(player.look);
+      this.golfersById.set(player.id, golfer);
+      return golfer;
+    });
+
     for (const golfer of this.golfers) {
       addSceneObject(golfer.root);
     }
@@ -122,9 +159,40 @@ export class GameManager {
     appearance: Partial<GolferAppearance>,
     accessories: Partial<Record<AccessorySlot, boolean>> = {}
   ) {
-    const golfer = this.golfer;
-    golfer.setAppearance(appearance);
+    const playerId = this.hole.current?.player.id ?? GROUP[0]?.id;
+    if (!playerId) {
+      return;
+    }
+    this.setPlayerAppearance(playerId, appearance, accessories);
+  }
 
+  setPlayerAppearance(
+    playerId: string,
+    appearance: Partial<GolferAppearance>,
+    accessories: Partial<Record<AccessorySlot, boolean>> = {}
+  ) {
+    const player = GROUP.find((candidate) => candidate.id === playerId);
+    const golfer = this.golfersById.get(playerId);
+    if (!player || !golfer) {
+      return;
+    }
+
+    const current = player.look.appearance ?? { ...DEFAULT_GOLFER_APPEARANCE };
+    const merged: GolferAppearance = {
+      ...current,
+      ...appearance,
+      outfit: { ...current.outfit, ...(appearance.outfit ?? {}) },
+      face: { ...current.face, ...(appearance.face ?? {}) },
+    };
+
+    player.look.appearance = merged;
+    player.look.hairStyle = merged.hairStyle;
+    player.look.hair = merged.hairColor;
+    player.look.skin = merged.skinTone;
+    player.look.jersey = merged.shirtColor;
+    player.look.shorts = merged.shortsColor;
+
+    golfer.setAppearance(merged);
     for (const slot of ['cap', 'glasses', 'bag', 'disc'] as AccessorySlot[]) {
       const visible = accessories[slot];
       if (visible === undefined) {
@@ -137,6 +205,13 @@ export class GameManager {
         golfer.removeAccessory(slot);
       }
     }
+
+    this.appearanceRepository.save(playerId, {
+      version: 1,
+      appearance: merged,
+      accessories,
+      savedAt: Date.now(),
+    });
   }
 
   reset() {

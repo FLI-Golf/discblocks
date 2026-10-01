@@ -591,6 +591,8 @@ export class Scene {
     const material = new THREE.MeshBasicMaterial({
       map: texture,
       transparent: true,
+      opacity: 0.62,
+      color: 0x9b9b9b,
       depthWrite: false,
     });
 
