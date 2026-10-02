@@ -33,6 +33,68 @@ export type HairStyle =
 export type BodyProfileId = 'athleticMale' | 'athleticFemale' | 'neutralLean';
 export type AccessorySlot = 'cap' | 'visor' | 'glasses' | 'disc' | 'bag';
 
+export function printSceneGraph(root: THREE.Object3D, label: string) {
+  const rows: Array<{
+    name: string;
+    type: string;
+    visible: boolean;
+    childCount: number;
+    position: [number, number, number];
+    rotation: [number, number, number];
+    scale: [number, number, number];
+  }> = [];
+  const seen = new Set<THREE.Object3D>();
+
+  const visit = (node: THREE.Object3D) => {
+    if (seen.has(node)) {
+      return;
+    }
+    seen.add(node);
+
+    const name = node.name || node.type;
+    const isRelevant = /(head|face|hair|jaw|eye|nose|mouth|brow|sidepart|cap)/i.test(name);
+    if (isRelevant || node === root) {
+      const position = (node.position.toArray().slice(0, 3) as number[]).map((value) =>
+        Number(value.toFixed(4))
+      ) as [number, number, number];
+      const rotation = (node.rotation.toArray().slice(0, 3) as number[]).map((value) =>
+        Number(value.toFixed(4))
+      ) as [number, number, number];
+      const scale = (node.scale.toArray().slice(0, 3) as number[]).map((value) =>
+        Number(value.toFixed(4))
+      ) as [number, number, number];
+
+      rows.push({
+        name,
+        type: node.type,
+        visible: node.visible,
+        childCount: node.children.length,
+        position,
+        rotation,
+        scale,
+      });
+    }
+
+    node.children.forEach(visit);
+  };
+
+  visit(root);
+
+  if (rows.length === 0) {
+    console.warn(label, {
+      rootName: root.name || root.type,
+      type: root.type,
+      visible: root.visible,
+      childCount: root.children.length,
+    });
+    return;
+  }
+
+  console.groupCollapsed(label);
+  console.table(rows);
+  console.groupEnd();
+}
+
 export interface BodyProfile {
   id: BodyProfileId;
   shoulderWidth: number;
@@ -45,15 +107,62 @@ export interface BodyProfile {
   headScale: number;
   jawWidth: number;
   chinShape: number;
+  neckWidth: number;
+  neckLength: number;
 }
 
 export type FacePresetId = 'male' | 'female' | 'neutral';
-export type AvatarModelId = 'male' | 'female';
+export type AvatarModelId = 'male' | 'female' | 'none';
 
-export const AVATAR_MODEL_URLS: Record<AvatarModelId, string> = {
+export const AVATAR_MODEL_URLS: Record<'male' | 'female', string> = {
   male: '/models/male_avatar.glb',
   female: '/models/female_avatar.glb',
 };
+
+export type FaceParameterKey =
+  | 'headScale'
+  | 'jawWidth'
+  | 'chinShape'
+  | 'brow'
+  | 'nose'
+  | 'eyeSpacing'
+  | 'mouth'
+  | 'beard'
+  | 'stubble';
+
+export const FACE_PARAMETER_LIMITS: Record<
+  FaceParameterKey,
+  { min: number; max: number; default: number; step: number }
+> = {
+  headScale: { min: 0.7, max: 1.3, default: 1.0, step: 0.01 },
+  jawWidth: { min: 0.4, max: 1.6, default: 0.99, step: 0.01 },
+  chinShape: { min: 0.5, max: 1.6, default: 0.96, step: 0.01 },
+  brow: { min: 0.0, max: 1.2, default: 0.72, step: 0.01 },
+  nose: { min: 0.55, max: 1.45, default: 0.5, step: 0.01 },
+  eyeSpacing: { min: 0.3, max: 1.2, default: 0.7, step: 0.01 },
+  mouth: { min: 0.3, max: 1.4, default: 0.42, step: 0.01 },
+  beard: { min: 0.0, max: 1.0, default: 0.0, step: 0.01 },
+  stubble: { min: 0.0, max: 1.0, default: 0.0, step: 0.01 },
+};
+
+export function clampFaceParameterValue(key: FaceParameterKey, value: number): number {
+  const limit = FACE_PARAMETER_LIMITS[key];
+  return THREE.MathUtils.clamp(value, limit.min, limit.max);
+}
+
+export function mapFaceParameterToGeometry(key: FaceParameterKey, value: number): number {
+  const clamped = clampFaceParameterValue(key, value);
+  switch (key) {
+    case 'jawWidth':
+      return clamped / FACE_PARAMETER_LIMITS.jawWidth.default;
+    case 'headScale':
+      return clamped / FACE_PARAMETER_LIMITS.headScale.default;
+    case 'chinShape':
+      return clamped / FACE_PARAMETER_LIMITS.chinShape.default;
+    default:
+      return clamped;
+  }
+}
 
 export interface FaceConfig {
   preset: FacePresetId;
@@ -142,20 +251,18 @@ interface Pose {
   joints: Partial<Record<JointName, Euler3>>;
 }
 
-const SKIN = 0xd9a877;
 const JERSEY = 0x111827;
 const SHORTS = 0x1a1a1e;
 const SHOE = 0x111114;
-const HAIR = 0x3b241b;
 
 const DEFAULT_LOOK: GolferLook = {
-  jersey: JERSEY,
-  accent: 0xd72638,
-  shorts: SHORTS,
-  skin: SKIN,
-  hair: HAIR,
+  jersey: 0xf2f4f8,
+  accent: 0xe02b20,
+  shorts: 0x1a1a1e,
+  skin: 0xf0c8a0,
+  hair: 0x3b241b,
   hairStyle: 'sidePart',
-  build: 1,
+  build: 1.04,
 };
 
 const STAND_POSE: Pose = {
@@ -179,16 +286,18 @@ const STAND_POSE: Pose = {
 export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
   athleticMale: {
     id: 'athleticMale',
-    shoulderWidth: 1.28,
-    torsoLength: 1.16,
-    torsoTaper: 1.06,
-    hipWidth: 0.86,
-    armThickness: 1.24,
-    legLength: 1.12,
-    legTaper: 1.18,
-    headScale: 1.12,
-    jawWidth: 1.38,
-    chinShape: 1.28,
+    shoulderWidth: 1.18,
+    torsoLength: 1.22,
+    torsoTaper: 1.12,
+    hipWidth: 0.82,
+    armThickness: 1.18,
+    legLength: 1.08,
+    legTaper: 1.14,
+    headScale: 1.08,
+    jawWidth: 1.12,
+    chinShape: 1.06,
+    neckWidth: 1.0,
+    neckLength: 1.0,
   },
   athleticFemale: {
     id: 'athleticFemale',
@@ -202,6 +311,8 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     headScale: 0.96,
     jawWidth: 0.78,
     chinShape: 0.7,
+    neckWidth: 0.9,
+    neckLength: 0.92,
   },
   neutralLean: {
     id: 'neutralLean',
@@ -215,6 +326,8 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     headScale: 0.88,
     jawWidth: 0.9,
     chinShape: 0.84,
+    neckWidth: 0.88,
+    neckLength: 0.96,
   },
 };
 
@@ -269,8 +382,7 @@ export function buildCharacterAppearance(
   };
 
   const appearance: CharacterAppearance = {
-    avatarModelId:
-      overrides.avatarModelId ?? (baseProfile === 'athleticFemale' ? 'female' : 'male'),
+    avatarModelId: overrides.avatarModelId ?? 'none',
     bodyProfile: baseProfile,
     profile,
     skinTone: overrides.skinTone ?? facePreset.skinTone,
@@ -303,16 +415,16 @@ export function buildCharacterAppearance(
 export const FACE_PRESETS: Record<FacePresetId, FaceConfig> = {
   male: {
     preset: 'male',
-    skinTone: 0xe7c7b7,
-    hairColor: 0xd4a66b,
+    skinTone: 0xe8c4b8,
+    hairColor: 0x1b120d,
     hairStyle: 'sidePart',
-    headScale: 1.14,
-    jawWidth: 0.96,
-    chinShape: 0.78,
-    brow: 0.76,
-    nose: 0.4,
-    eyeSpacing: 0.8,
-    mouth: 0.44,
+    headScale: 1.0,
+    jawWidth: 0.99,
+    chinShape: 0.96,
+    brow: 0.72,
+    nose: 0.5,
+    eyeSpacing: 0.7,
+    mouth: 0.42,
     beard: 0,
     stubble: 0,
   },
@@ -326,7 +438,7 @@ export const FACE_PRESETS: Record<FacePresetId, FaceConfig> = {
     chinShape: 0.7,
     brow: 0.28,
     nose: 0.72,
-    eyeSpacing: 0.72,
+    eyeSpacing: 0.62,
     mouth: 0.36,
     beard: 0,
     stubble: 0,
@@ -348,21 +460,39 @@ export const FACE_PRESETS: Record<FacePresetId, FaceConfig> = {
   },
 };
 
-export const DEFAULT_GOLFER_APPEARANCE: GolferAppearance = buildCharacterAppearance({
-  avatarModelId: 'male',
-  bodyProfile: 'neutralLean',
-  skinTone: 0xe7c7b7,
+export const DEFAULT_MALE_FACE: FaceConfig = { ...FACE_PRESETS.male };
+
+export const DEFAULT_MALE_APPEARANCE: GolferAppearance = buildCharacterAppearance({
+  avatarModelId: 'none',
+  bodyProfile: 'athleticMale',
+  skinTone: 0xe8c4b8,
   hairStyle: 'sidePart',
-  hairColor: 0xd4a66b,
-  shirtColor: JERSEY,
-  shortsColor: SHORTS,
+  hairColor: 0x1b120d,
+  shirtColor: 0xf2f4f8,
+  shortsColor: 0x1a1a1e,
   shoeColor: SHOE,
-  accentColor: 0xd72638,
+  accentColor: 0xe02b20,
   jerseyNumber: 1,
   beard: 0,
   stubble: 0,
   facePreset: 'male',
+  profile: {
+    ...BODY_PROFILES.athleticMale,
+    headScale: 1.02,
+    jawWidth: DEFAULT_MALE_FACE.jawWidth,
+    chinShape: 0.98,
+  },
+  face: {
+    brow: 0.62,
+    nose: 0.48,
+    eyeSpacing: 0.68,
+    mouth: 0.44,
+    beard: 0,
+    stubble: 0,
+  },
 });
+
+export const DEFAULT_GOLFER_APPEARANCE: GolferAppearance = DEFAULT_MALE_APPEARANCE;
 
 /**
  * Right-handed backhand, matching public/throw_positions/step1..6.
@@ -372,60 +502,60 @@ const THROW_SEQUENCE: { pose: Pose; duration: number }[] = [
   {
     duration: 0.35,
     pose: {
-      rootYaw: 0,
+      rootYaw: 0.18,
       rootLift: 0,
       joints: {
-        hips: [0, 0, 0],
-        torso: [0.05, 0, 0],
-        head: [0, 0, 0],
-        shoulderR: [0.9, 0, -0.5],
-        elbowR: [0, 0, -1.5],
-        shoulderL: [0.5, 0, 0.35],
-        elbowL: [0, 0, 0.9],
-        hipR: [-0.1, 0, 0.05],
-        kneeR: [0.2, 0, 0],
-        hipL: [0.1, 0, -0.05],
-        kneeL: [0.2, 0, 0],
+        hips: [0, 0.08, 0],
+        torso: [0.2, 0.12, 0],
+        head: [0, -0.15, 0],
+        shoulderR: [1.05, 0, -0.7],
+        elbowR: [0, 0, -1.95],
+        shoulderL: [0.52, 0, 0.38],
+        elbowL: [0, 0, 0.88],
+        hipR: [-0.15, 0, 0.08],
+        kneeR: [0.15, 0, 0],
+        hipL: [0.2, 0, -0.04],
+        kneeL: [0.18, 0, 0],
       },
     },
   },
   {
     duration: 0.4,
     pose: {
-      rootYaw: 0.75,
+      rootYaw: 0.82,
       rootLift: -0.05,
       joints: {
-        hips: [0, 0.2, 0],
-        torso: [0.1, 0.35, 0],
+        hips: [0, 0.26, 0],
+        torso: [0.26, 0.42, 0],
         head: [0, -0.7, 0],
-        shoulderR: [0.3, 0, -0.7],
-        elbowR: [0, 0, -1.1],
-        shoulderL: [0.7, 0, 0.5],
-        elbowL: [0, 0, 1.1],
-        hipR: [-0.5, 0, 0.1],
+        shoulderR: [0.38, 0, -0.95],
+        elbowR: [0, 0, -1.2],
+        shoulderL: [0.7, 0, 0.58],
+        elbowL: [0, 0, 1.06],
+        hipR: [-0.52, 0, 0.12],
         kneeR: [0.9, 0, 0],
-        hipL: [0.35, 0, -0.1],
-        kneeL: [0.15, 0, 0],
+        hipL: [0.38, 0, -0.1],
+        kneeL: [0.18, 0, 0],
       },
     },
   },
   {
     duration: 0.3,
     pose: {
-      rootYaw: 1.7,
+      rootYaw: 1.62,
       rootLift: -0.12,
       joints: {
-        hips: [0, 0.3, 0],
-        torso: [0.18, 0.5, 0],
+        hips: [0, 0.32, 0],
+        torso: [0.3, 0.56, 0],
         head: [0, -1.2, 0],
-        shoulderR: [-0.35, 0, -1.25],
-        elbowR: [0, 0, -0.45],
-        shoulderL: [0.95, 0, 0.75],
-        elbowL: [0, 0, 1.3],
-        hipR: [-0.35, 0, 0.12],
-        kneeR: [1.1, 0, 0],
-        hipL: [0.5, 0, -0.12],
-        kneeL: [0.25, 0, 0],
+        shoulderR: [-0.3, 0, -1.2],
+        elbowR: [0, 0, -0.52],
+        shoulderL: [0.95, 0, 0.72],
+        elbowL: [0, 0, 1.25],
+        hipR: [-0.38, 0, 0.15],
+        kneeR: [1.12, 0, 0],
+        hipL: [0.52, 0, -0.12],
+        kneeL: [0.26, 0, 0],
       },
     },
   },
@@ -1008,6 +1138,37 @@ export class Face {
     morphTargetInfluences?: number[];
   };
   private hairRoot?: THREE.Group;
+  private readonly baselineTransforms = new Map<
+    THREE.Object3D,
+    { position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 }
+  >();
+  private readonly faceParts = {
+    head: undefined as THREE.Mesh | undefined,
+    jaw: undefined as THREE.Mesh | undefined,
+    cheeks: {
+      left: undefined as THREE.Mesh | undefined,
+      right: undefined as THREE.Mesh | undefined,
+    },
+    eyes: {
+      left: {
+        white: undefined as THREE.Mesh | undefined,
+        iris: undefined as THREE.Mesh | undefined,
+        eyelid: undefined as THREE.Mesh | undefined,
+      },
+      right: {
+        white: undefined as THREE.Mesh | undefined,
+        iris: undefined as THREE.Mesh | undefined,
+        eyelid: undefined as THREE.Mesh | undefined,
+      },
+    },
+    brows: {
+      left: undefined as THREE.Mesh | undefined,
+      right: undefined as THREE.Mesh | undefined,
+    },
+    nose: undefined as THREE.Mesh | undefined,
+    mouth: undefined as THREE.Mesh | undefined,
+    hairRoot: undefined as THREE.Group | undefined,
+  };
   readonly ready: Promise<void>;
 
   static getModelLoader(): GLTFLoader {
@@ -1030,10 +1191,31 @@ export class Face {
   }
 
   constructor(config: Partial<FaceConfig> = {}) {
-    this.config = { ...FACE_PRESETS.neutral, ...config };
+    this.config = { ...FACE_PRESETS.male, ...config };
     this.config.hairStyle = this.normalizeHairStyle(this.config.hairStyle);
+    this.root.visible = true;
     this.buildLegacyFallbackHead();
-    this.ready = this.loadModel();
+    const debugState = {
+      preset: this.config.preset,
+      hairStyle: this.config.hairStyle,
+      headScale: this.config.headScale,
+      jawWidth: this.config.jawWidth,
+      chinShape: this.config.chinShape,
+      faceMesh: null,
+      visible: this.root.visible,
+    };
+    console.warn('[Face] constructor start', debugState);
+    if (typeof window !== 'undefined') {
+      (window as Window & { __faceDebug?: Record<string, unknown> }).__faceDebug = {
+        ...(window as Window & { __faceDebug?: Record<string, unknown> }).__faceDebug,
+        last: debugState,
+      };
+    }
+    this.ready = Promise.resolve().then(() => {
+      this.root.visible = true;
+      this.apply();
+      this.debugObjectState('procedural face active');
+    });
   }
 
   getMorphTargetNames(): string[] {
@@ -1047,122 +1229,74 @@ export class Face {
     return style ?? 'shortCrop';
   }
 
-  private async loadModel() {
-    try {
-      const loader = Face.getModelLoader();
-      const ktx2Loader = Face.getSharedKTX2Loader();
-      await MeshoptDecoder.ready;
-      try {
-        const renderer = new THREE.WebGLRenderer({
-          antialias: false,
-          alpha: true,
-          powerPreference: 'high-performance',
-        });
-        renderer.setSize(1, 1);
-        ktx2Loader.detectSupport(renderer);
-        renderer.dispose();
-      } catch {
-        // Some test or headless environments cannot create a WebGL renderer.
-      }
-
-      const gltf = await new Promise<THREE.Group>((resolve, reject) => {
-        loader.load(
-          FACE_MODEL_URL,
-          (loaded) => resolve(loaded.scene),
-          undefined,
-          (error) => reject(error)
-        );
-      });
-
-      const faceMesh = this.findMorphTargetMesh(gltf);
-      if (faceMesh) {
-        this.root.clear();
-        this.faceMesh = faceMesh;
-        this.root.add(faceMesh);
-        faceMesh.scale.set(1.2, 1.2, 1.2);
-        faceMesh.position.set(0, -0.12, 0.18);
-        faceMesh.rotation.y = Math.PI;
-        faceMesh.castShadow = true;
-        faceMesh.receiveShadow = true;
-        this.addHair();
-        this.apply();
-        return;
-      }
-    } catch (error) {
-      console.error('Face model failed to load:', error);
-    }
-
-    this.apply();
-  }
-
-  private findMorphTargetMesh(root: THREE.Object3D):
-    | (THREE.Mesh & {
-        morphTargetDictionary?: Record<string, number>;
-        morphTargetInfluences?: number[];
-      })
-    | undefined {
-    let result:
-      | (THREE.Mesh & {
-          morphTargetDictionary?: Record<string, number>;
-          morphTargetInfluences?: number[];
-        })
-      | undefined;
-
-    root.traverse((child) => {
-      if (!(child instanceof THREE.Mesh)) {
-        return;
-      }
-      if (Array.isArray(child.morphTargetInfluences) && child.morphTargetInfluences.length > 0) {
-        result = child as typeof result;
-      }
-    });
-
-    return result;
-  }
-
   private buildLegacyFallbackHead() {
     this.root.clear();
     this.faceMesh = undefined;
+    this.baselineTransforms.clear();
 
     const skin = new THREE.MeshStandardMaterial({
       color: this.config.skinTone,
       roughness: 0.72,
       metalness: 0.04,
     });
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 20, 18), skin);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 26, 24), skin);
     head.name = 'head-part';
-    head.scale.set(1.06, 1.18, 0.96);
+    head.scale.set(1.12, 1.34, 1.06);
     head.position.y = 0.04;
     head.castShadow = true;
     this.root.add(head);
 
-    const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.12, 18, 16), skin.clone());
+    const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.118, 20, 18), skin.clone());
     jaw.name = 'jaw-part';
-    jaw.scale.set(1.02, 0.78, 0.9);
-    jaw.position.set(0, -0.12, 0.04);
+    jaw.scale.set(1.24, 0.96, 1.06);
+    jaw.position.set(0, -0.14, 0.05);
     this.root.add(jaw);
 
     const cheekLeft = new THREE.Mesh(new THREE.SphereGeometry(0.04, 12, 10), skin.clone());
     cheekLeft.name = 'cheek-left';
-    cheekLeft.scale.set(0.82, 0.56, 0.52);
-    cheekLeft.position.set(-0.08, -0.02, 0.08);
+    cheekLeft.scale.set(1.44, 0.96, 0.8);
+    cheekLeft.position.set(-0.1, -0.02, 0.1);
     this.root.add(cheekLeft);
 
     const cheekRight = cheekLeft.clone();
     cheekRight.name = 'cheek-right';
-    cheekRight.position.x = 0.08;
+    cheekRight.position.x = 0.1;
     this.root.add(cheekRight);
 
     const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0xf4f7ff, roughness: 0.25 });
-    const eyeLeft = new THREE.Mesh(new THREE.SphereGeometry(0.034, 12, 10), eyeMaterial);
+    const eyeLeft = new THREE.Mesh(new THREE.SphereGeometry(0.028, 12, 10), eyeMaterial);
     eyeLeft.name = 'eye-white-left';
-    eyeLeft.position.set(-0.05, 0.03, 0.11);
+    eyeLeft.position.set(-0.058, 0.03, 0.12);
     this.root.add(eyeLeft);
 
     const eyeRight = eyeLeft.clone();
     eyeRight.name = 'eye-white-right';
-    eyeRight.position.x = 0.05;
+    eyeRight.position.x = 0.058;
     this.root.add(eyeRight);
+
+    const irisMaterial = new THREE.MeshStandardMaterial({ color: 0x5a7a45, roughness: 0.5 });
+    const irisLeft = new THREE.Mesh(new THREE.SphereGeometry(0.011, 10, 10), irisMaterial);
+    irisLeft.name = 'iris-left';
+    irisLeft.position.set(-0.058, 0.03, 0.146);
+    this.root.add(irisLeft);
+
+    const irisRight = irisLeft.clone();
+    irisRight.name = 'iris-right';
+    irisRight.position.x = 0.058;
+    this.root.add(irisRight);
+
+    const browMaterial = new THREE.MeshStandardMaterial({ color: 0x433129, roughness: 0.85 });
+    const browLeft = new THREE.Mesh(new THREE.BoxGeometry(0.066, 0.018, 0.01), browMaterial);
+    browLeft.name = 'brow-left';
+    browLeft.position.set(-0.06, 0.086, 0.124);
+    browLeft.rotation.z = 0.12;
+    this.root.add(browLeft);
+
+    const browRight = browLeft.clone();
+    browRight.name = 'brow-right';
+    browRight.position.x = 0.06;
+    browRight.rotation.z = -0.12;
+    this.root.add(browRight);
 
     const eyelidLeft = new THREE.Mesh(
       new THREE.BoxGeometry(0.06, 0.014, 0.014),
@@ -1180,24 +1314,171 @@ export class Face {
     this.root.add(eyelidRight);
 
     const nose = new THREE.Mesh(
-      new THREE.CapsuleGeometry(0.014, 0.06, 6, 10),
+      new THREE.CapsuleGeometry(0.016, 0.072, 8, 12),
       new THREE.MeshStandardMaterial({ color: this.config.skinTone, roughness: 0.8 })
     );
     nose.name = 'nose-part';
     nose.rotation.x = Math.PI / 2;
-    nose.position.set(0, -0.02, 0.13);
+    nose.position.set(0, -0.012, 0.148);
+    nose.scale.set(0.95, 0.98, 1.1);
     this.root.add(nose);
 
     const mouth = new THREE.Mesh(
-      new THREE.TorusGeometry(0.024, 0.0036, 8, 24, Math.PI),
-      new THREE.MeshStandardMaterial({ color: 0xab5a60, roughness: 0.9 })
+      new THREE.TorusGeometry(0.024, 0.004, 8, 28, Math.PI),
+      new THREE.MeshStandardMaterial({ color: 0xc68080, roughness: 0.9 })
     );
     mouth.name = 'mouth-part';
-    mouth.position.set(0, -0.1, 0.12);
+    mouth.position.set(0, -0.12, 0.124);
     mouth.rotation.z = Math.PI;
     this.root.add(mouth);
 
+    this.faceParts.head = head;
+    this.faceParts.jaw = jaw;
+    this.faceParts.cheeks.left = cheekLeft;
+    this.faceParts.cheeks.right = cheekRight;
+    this.faceParts.eyes.left.white = eyeLeft;
+    this.faceParts.eyes.left.iris = irisLeft;
+    this.faceParts.eyes.left.eyelid = eyelidLeft;
+    this.faceParts.eyes.right.white = eyeRight;
+    this.faceParts.eyes.right.iris = irisRight;
+    this.faceParts.eyes.right.eyelid = eyelidRight;
+    this.faceParts.brows.left = browLeft;
+    this.faceParts.brows.right = browRight;
+    this.faceParts.nose = nose;
+    this.faceParts.mouth = mouth;
+    this.faceParts.hairRoot = this.hairRoot ?? new THREE.Group();
+
+    [
+      head,
+      jaw,
+      cheekLeft,
+      cheekRight,
+      eyeLeft,
+      eyeRight,
+      irisLeft,
+      irisRight,
+      browLeft,
+      browRight,
+      eyelidLeft,
+      eyelidRight,
+      nose,
+      mouth,
+    ].forEach((part) => this.captureBaseline(part));
+
     this.addHair();
+    console.warn('[Face] fallback head built');
+    this.debugObjectState('fallback head created');
+  }
+
+  private getSkullMetrics() {
+    const headPart = this.root.getObjectByName('head-part') as THREE.Mesh | undefined;
+    const headScale = headPart?.scale ?? new THREE.Vector3(1.12, 1.34, 1.06);
+    const center = headPart?.position ?? new THREE.Vector3(0, 0.04, 0);
+    const width = 0.32 * headScale.x;
+    const height = 0.44 * headScale.y;
+    const depth = 0.32 * headScale.z;
+
+    return {
+      width,
+      height,
+      depth,
+      center,
+      topY: center.y + height * 0.48,
+      frontZ: center.z + depth * 0.42,
+      backZ: center.z - depth * 0.56,
+    };
+  }
+
+  private createHairCap(material: THREE.MeshStandardMaterial, options: { thin?: boolean } = {}) {
+    const metrics = this.getSkullMetrics();
+    const cap = new THREE.Group();
+    cap.name = 'hair-cap';
+
+    const shell = new THREE.Mesh(
+      new THREE.SphereGeometry(metrics.width * 0.5, 24, 18, 0, Math.PI * 2, 0.2, 1.1),
+      material
+    );
+    shell.name = 'hair-cap-shell';
+    shell.scale.set(1.0, options.thin ? 0.65 : 0.8, 1.04);
+    shell.position.set(
+      metrics.center.x,
+      metrics.center.y + metrics.height * 0.1,
+      metrics.center.z - metrics.depth * 0.02
+    );
+    cap.add(shell);
+
+    const front = new THREE.Mesh(
+      new THREE.SphereGeometry(metrics.width * 0.26, 18, 12, 0, Math.PI * 2, 0.2, 0.88),
+      material
+    );
+    front.name = 'hair-cap-front';
+    front.scale.set(1.1, 0.45, 0.7);
+    front.position.set(
+      0,
+      metrics.topY - metrics.height * 0.18,
+      metrics.frontZ - metrics.depth * 0.08
+    );
+    cap.add(front);
+
+    const left = new THREE.Mesh(
+      new THREE.SphereGeometry(metrics.width * 0.18, 18, 12, 0, Math.PI * 2, 0.18, 0.8),
+      material
+    );
+    left.name = 'hair-cap-left';
+    left.scale.set(0.86, 0.56, 0.86);
+    left.position.set(-metrics.width * 0.56, metrics.center.y + metrics.height * 0.12, 0.0);
+    cap.add(left);
+
+    const right = left.clone();
+    right.name = 'hair-cap-right';
+    right.position.x = metrics.width * 0.56;
+    cap.add(right);
+
+    return cap;
+  }
+
+  private createPonytail(material: THREE.MeshStandardMaterial) {
+    const metrics = this.getSkullMetrics();
+    const cap = this.createHairCap(material, { thin: false });
+    cap.name = 'hair-ponytail-cap';
+
+    const gather = new THREE.Mesh(
+      new THREE.SphereGeometry(Math.max(0.024, metrics.width * 0.14), 16, 12),
+      material
+    );
+    gather.name = 'hair-ponytail-gather';
+    gather.position.set(
+      metrics.center.x,
+      metrics.center.y + metrics.height * 0.18,
+      metrics.center.z - metrics.depth * 0.52
+    );
+
+    const tailMaterial = material.clone();
+    tailMaterial.color = material.color.clone();
+
+    const base = gather.position.clone();
+    const midBack = base.clone().add(new THREE.Vector3(0, -0.08, -0.1));
+    const midDown = base.clone().add(new THREE.Vector3(0, -0.24, -0.18));
+    const end = base.clone().add(new THREE.Vector3(0, -0.44, -0.3));
+
+    const curveA = new THREE.CatmullRomCurve3([base, midBack, midDown, end]);
+    const segA = new THREE.Mesh(new THREE.TubeGeometry(curveA, 14, 0.028, 8, false), tailMaterial);
+    segA.name = 'hair-ponytail-tail-a';
+
+    const curveB = new THREE.CatmullRomCurve3([
+      end.clone().add(new THREE.Vector3(0, -0.02, 0.02)),
+      end.clone().add(new THREE.Vector3(0, -0.12, -0.04)),
+      end.clone().add(new THREE.Vector3(0, -0.26, -0.1)),
+      end.clone().add(new THREE.Vector3(0, -0.38, -0.18)),
+    ]);
+    const segB = new THREE.Mesh(new THREE.TubeGeometry(curveB, 12, 0.02, 8, false), tailMaterial);
+    segB.name = 'hair-ponytail-tail-b';
+
+    const tailRoot = new THREE.Group();
+    tailRoot.name = 'hair-ponytail-tail';
+    tailRoot.add(segA, segB);
+
+    return { cap, gather, tail: tailRoot };
   }
 
   private addHair() {
@@ -1218,71 +1499,222 @@ export class Face {
     });
 
     if (hairStyle === 'bald') {
-      return;
-    }
-
-    const scalp = new THREE.Mesh(new THREE.SphereGeometry(0.12, 14, 12), hairMaterial);
-    scalp.name = 'hair-part';
-    scalp.scale.set(1.06, 0.7, 1.02);
-    scalp.position.set(0, 0.08, 0.02);
-    hairRoot.add(scalp);
-
-    if (hairStyle === 'ponytail') {
-      const tail = new THREE.Mesh(new THREE.CapsuleGeometry(0.024, 0.22, 6, 12), hairMaterial);
-      tail.position.set(0, 0.02, -0.14);
-      tail.rotation.x = -1.2;
-      hairRoot.add(tail);
-      return;
-    }
-
-    if (hairStyle === 'bun') {
-      const bun = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 10), hairMaterial);
-      bun.position.set(0, 0.05, -0.09);
-      hairRoot.add(bun);
+      console.log('[procedural hair]', {
+        style: hairStyle,
+        children: hairRoot.children.map((child) => ({
+          name: child.name,
+          position: child.position.toArray(),
+          scale: child.scale.toArray(),
+        })),
+      });
       return;
     }
 
     if (hairStyle === 'buzzCut') {
-      const fringe = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.026, 0.09), hairMaterial);
-      fringe.position.set(0, 0.05, 0.1);
-      hairRoot.add(fringe);
+      const metrics = this.getSkullMetrics();
+      const shell = new THREE.Mesh(
+        new THREE.SphereGeometry(metrics.width * 0.46, 22, 16, 0, Math.PI * 2, 0.22, 1.1),
+        hairMaterial
+      );
+      shell.name = 'hair-buzz-shell';
+      shell.scale.set(1.0, 0.64, 1.04);
+      shell.position.set(
+        metrics.center.x,
+        metrics.center.y + metrics.height * 0.12,
+        metrics.center.z - metrics.depth * 0.02
+      );
+      hairRoot.add(shell);
+      console.log('[procedural hair]', {
+        style: hairStyle,
+        children: hairRoot.children.map((child) => ({
+          name: child.name,
+          position: child.position.toArray(),
+          scale: child.scale.toArray(),
+        })),
+      });
+      return;
+    }
+
+    if (hairStyle === 'shortCrop') {
+      const cap = this.createHairCap(hairMaterial, { thin: false });
+      cap.name = 'hair-short-cap';
+      const top = new THREE.Mesh(new THREE.SphereGeometry(0.08, 18, 12), hairMaterial);
+      top.name = 'hair-short-top';
+      top.scale.set(1.2, 0.52, 0.9);
+      top.position.set(0, this.getSkullMetrics().topY - 0.02, 0.04);
+      hairRoot.add(cap, top);
+      console.log('[procedural hair]', {
+        style: hairStyle,
+        children: hairRoot.children.map((child) => ({
+          name: child.name,
+          position: child.position.toArray(),
+          scale: child.scale.toArray(),
+        })),
+      });
+      return;
+    }
+
+    if (hairStyle === 'ponytail') {
+      const ponytail = this.createPonytail(hairMaterial);
+      hairRoot.add(ponytail.cap, ponytail.gather, ponytail.tail);
+      console.log('[procedural hair]', {
+        style: hairStyle,
+        children: hairRoot.children.map((child) => ({
+          name: child.name,
+          position: child.position.toArray(),
+          scale: child.scale.toArray(),
+        })),
+      });
       return;
     }
 
     if (hairStyle === 'undercut') {
-      const left = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 8), hairMaterial);
-      left.scale.set(0.9, 0.75, 1.1);
-      left.position.set(-0.12, 0.02, 0.04);
-      hairRoot.add(left);
+      const cap = this.createHairCap(hairMaterial, { thin: false });
+      cap.name = 'hair-undercut-cap';
+      const left = new THREE.Mesh(new THREE.SphereGeometry(0.06, 14, 12), hairMaterial);
+      left.name = 'hair-undercut-left';
+      left.scale.set(0.95, 0.56, 0.8);
+      left.position.set(-0.1, 0.05, 0.04);
       const right = left.clone();
-      right.position.x = 0.12;
-      hairRoot.add(right);
+      right.name = 'hair-undercut-right';
+      right.position.x = 0.1;
+      hairRoot.add(cap, left, right);
+      console.log('[procedural hair]', {
+        style: hairStyle,
+        children: hairRoot.children.map((child) => ({
+          name: child.name,
+          position: child.position.toArray(),
+          scale: child.scale.toArray(),
+        })),
+      });
       return;
     }
 
     if (hairStyle === 'sidePart') {
-      const sweep = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.14, 5, 10), hairMaterial);
-      sweep.position.set(0.1, 0.03, 0.08);
-      sweep.rotation.z = -0.9;
-      hairRoot.add(sweep);
+      const cap = this.createHairCap(hairMaterial, { thin: false });
+      cap.name = 'hair-sidepart-cap';
+      cap.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.name === 'hair-cap-shell') {
+          child.name = 'hair-sidepart-shell';
+        }
+        if (child instanceof THREE.Mesh && child.name === 'hair-cap-front') {
+          child.name = 'hair-sidepart-front';
+        }
+        if (child instanceof THREE.Mesh && child.name === 'hair-cap-left') {
+          child.name = 'hair-sidepart-left';
+        }
+        if (child instanceof THREE.Mesh && child.name === 'hair-cap-right') {
+          child.name = 'hair-sidepart-right';
+        }
+      });
+
+      const sweep = new THREE.Mesh(new THREE.SphereGeometry(0.09, 18, 12), hairMaterial);
+      sweep.name = 'hair-sidepart-sweep';
+      sweep.scale.set(1.2, 0.44, 0.9);
+      sweep.position.set(0.07, 0.08, 0.08);
+      sweep.rotation.z = -0.2;
+      hairRoot.add(cap, sweep);
+      console.log('[procedural hair]', {
+        style: hairStyle,
+        pieces: hairRoot.children.map((child) => child.name),
+      });
       return;
     }
+
+    const cap = this.createHairCap(hairMaterial, { thin: false });
+    cap.name = 'hair-cap';
+    hairRoot.add(cap);
+    console.log('[procedural hair]', {
+      style: hairStyle,
+      children: hairRoot.children.map((child) => ({
+        name: child.name,
+        position: child.position.toArray(),
+        scale: child.scale.toArray(),
+      })),
+    });
   }
 
   debugReport(label: string) {
     if (!this.faceMesh) {
-      console.log(`[${label}] Face model pending`, this.root.children.length);
+      console.log(`[${label}] Face model pending`, {
+        visible: this.root.visible,
+        childCount: this.root.children.length,
+        children: this.root.children.map((child) => child.name || child.type),
+      });
       return;
     }
     const names = Object.keys(this.faceMesh.morphTargetDictionary ?? {}).map((key) =>
       key.replace('blendShape1.', '')
     );
-    console.log(`[${label}] Face morph targets`, names);
+    console.log(`[${label}] Face morph targets`, {
+      visible: this.root.visible,
+      childCount: this.root.children.length,
+      faceMeshName: this.faceMesh.name,
+      morphTargets: names.slice(0, 20),
+      morphTargetCount: names.length,
+    });
+  }
+
+  debugObjectState(label: string) {
+    const names = this.root.children.map((child) => child.name || child.type);
+    const payload = {
+      visible: this.root.visible,
+      childCount: this.root.children.length,
+      childNames: names,
+      hasFaceMesh: !!this.faceMesh,
+      faceMeshName: this.faceMesh?.name,
+      morphTargetCount: this.faceMesh
+        ? Object.keys(this.faceMesh.morphTargetDictionary ?? {}).length
+        : 0,
+    };
+    console.warn(`[${label}] Face root`, payload);
+    if (typeof window !== 'undefined') {
+      (window as Window & { __faceDebug?: Record<string, unknown> }).__faceDebug = {
+        ...(window as Window & { __faceDebug?: Record<string, unknown> }).__faceDebug,
+        last: payload,
+      };
+    }
+  }
+
+  private captureBaseline(object: THREE.Object3D) {
+    this.baselineTransforms.set(object, {
+      position: object.position.clone(),
+      rotation: object.rotation.clone(),
+      scale: object.scale.clone(),
+    });
+  }
+
+  private debugParameterUpdate(parameter: string, value: number, affectedObjects: string[]) {
+    console.info('[face parameter update]', {
+      parameter,
+      value,
+      affectedObjects,
+    });
   }
 
   setConfig(config: Partial<FaceConfig>) {
     this.config = { ...this.config, ...config };
     this.config.hairStyle = this.normalizeHairStyle(this.config.hairStyle);
+    (
+      [
+        'headScale',
+        'jawWidth',
+        'chinShape',
+        'brow',
+        'nose',
+        'eyeSpacing',
+        'mouth',
+        'beard',
+        'stubble',
+      ] as FaceParameterKey[]
+    ).forEach((key) => {
+      const value = this.config[key];
+      this.config[key] = clampFaceParameterValue(key, value);
+      if (typeof value === 'number') {
+        const affectedObjects = this.getAffectedObjectsForParameter(key as keyof FaceConfig);
+        this.debugParameterUpdate(key, this.config[key], affectedObjects);
+      }
+    });
     this.apply();
   }
 
@@ -1302,11 +1734,17 @@ export class Face {
     value: number
   ) {
     this.config[feature] = value;
+    this.debugParameterUpdate(feature, value, this.getAffectedObjectsForParameter(feature));
     this.apply();
   }
 
   resetToPreset(preset: FacePresetId) {
     this.config = { ...FACE_PRESETS[preset], preset };
+    this.debugParameterUpdate(
+      'preset-reset',
+      this.config.jawWidth,
+      this.getAffectedObjectsForParameter('jawWidth')
+    );
     this.apply();
   }
 
@@ -1346,75 +1784,277 @@ export class Face {
     }
   }
 
+  private getAffectedObjectsForParameter(parameter: keyof FaceConfig): string[] {
+    const mapping: Record<string, string[]> = {
+      headScale: ['head-part'],
+      jawWidth: ['jaw-part'],
+      chinShape: ['jaw-part'],
+      brow: ['brow-left', 'brow-right'],
+      nose: ['nose-part'],
+      eyeSpacing: [
+        'eye-white-left',
+        'iris-left',
+        'eyelid-left',
+        'eye-white-right',
+        'iris-right',
+        'eyelid-right',
+      ],
+      mouth: ['mouth-part'],
+      beard: ['beard-part'],
+      stubble: ['stubble-part'],
+    };
+
+    return mapping[parameter as string] ?? [];
+  }
+
   private apply() {
+    (
+      [
+        'headScale',
+        'jawWidth',
+        'chinShape',
+        'brow',
+        'nose',
+        'eyeSpacing',
+        'mouth',
+        'beard',
+        'stubble',
+      ] as FaceParameterKey[]
+    ).forEach((key) => {
+      this.config[key] = clampFaceParameterValue(key, this.config[key]);
+    });
+
     this.root.scale.setScalar(Math.max(0.2, this.config.headScale ?? 1));
     const hairstyle = this.normalizeHairStyle(this.config.hairStyle);
     this.config.hairStyle = hairstyle;
     this.addHair();
 
-    const headPart = this.root.getObjectByName('head-part');
-    if (headPart instanceof THREE.Mesh) {
+    const headPart = this.faceParts.head;
+    if (headPart) {
+      const baseline = this.baselineTransforms.get(headPart) ?? {
+        position: headPart.position.clone(),
+        rotation: headPart.rotation.clone(),
+        scale: headPart.scale.clone(),
+      };
+      const headScaleFactor = 1.06 + (this.config.headScale - 1) * 0.5;
+      const headYFactor = 1.18 + (this.config.headScale - 1) * 0.52;
+      const headZFactor = 0.98 + (this.config.headScale - 1) * 0.3;
       headPart.scale.set(
-        1.04 + (this.config.headScale - 1) * 0.42,
-        1.18 + (this.config.headScale - 1) * 0.46,
-        0.96 + (this.config.headScale - 1) * 0.26
+        (baseline.scale.x * headScaleFactor) / 1.12,
+        (baseline.scale.y * headYFactor) / 1.34,
+        (baseline.scale.z * headZFactor) / 1.06
       );
-      headPart.position.y = 0.02 + (this.config.headScale - 1) * 0.012;
-    }
-
-    const jaw = this.root.getObjectByName('jaw-part');
-    if (jaw instanceof THREE.Mesh) {
-      jaw.scale.set(this.config.jawWidth, 0.76 * this.config.chinShape, 0.9);
-      jaw.position.y = -0.1 - (this.config.chinShape - 1) * 0.04;
-      jaw.position.z = 0.01;
-    }
-
-    const cheekLeft = this.root.getObjectByName('cheek-left');
-    const cheekRight = this.root.getObjectByName('cheek-right');
-    if (cheekLeft instanceof THREE.Mesh && cheekRight instanceof THREE.Mesh) {
-      const eyeSpread = 0.052 + (1 - this.config.eyeSpacing) * 0.056;
-      cheekLeft.position.x = -eyeSpread;
-      cheekRight.position.x = eyeSpread;
-      cheekLeft.scale.set(
-        1.45 + this.config.jawWidth * 0.25,
-        0.9 + this.config.chinShape * 0.08,
-        0.9
+      headPart.position.set(
+        baseline.position.x,
+        baseline.position.y + (this.config.headScale - 1) * 0.014,
+        baseline.position.z
       );
-      cheekRight.scale.copy(cheekLeft.scale);
     }
 
-    const eyeLeft = this.root.getObjectByName('eye-white-left');
-    const eyeRight = this.root.getObjectByName('eye-white-right');
-    if (eyeLeft instanceof THREE.Mesh && eyeRight instanceof THREE.Mesh) {
-      const eyeSpread = 0.052 + (1 - this.config.eyeSpacing) * 0.056;
-      eyeLeft.position.x = -eyeSpread;
-      eyeRight.position.x = eyeSpread;
-      const leftEyelid = this.root.getObjectByName('eyelid-left');
-      const rightEyelid = this.root.getObjectByName('eyelid-right');
-      if (leftEyelid instanceof THREE.Mesh && rightEyelid instanceof THREE.Mesh) {
-        leftEyelid.position.x = eyeLeft.position.x;
-        rightEyelid.position.x = eyeRight.position.x;
+    const jaw = this.faceParts.jaw;
+    if (jaw) {
+      const baseline = this.baselineTransforms.get(jaw) ?? {
+        position: jaw.position.clone(),
+        rotation: jaw.rotation.clone(),
+        scale: jaw.scale.clone(),
+      };
+      const jawScaleX = mapFaceParameterToGeometry('jawWidth', this.config.jawWidth);
+      const chinScaleY = mapFaceParameterToGeometry('chinShape', this.config.chinShape);
+      jaw.scale.set(
+        baseline.scale.x * jawScaleX,
+        baseline.scale.y * chinScaleY,
+        baseline.scale.z * 0.96
+      );
+      jaw.position.set(
+        baseline.position.x,
+        baseline.position.y - (this.config.chinShape - 1) * 0.04,
+        baseline.position.z + 0.02 - 0.05 + 0.05
+      );
+    }
+
+    const cheekLeft = this.faceParts.cheeks.left;
+    const cheekRight = this.faceParts.cheeks.right;
+    if (cheekLeft && cheekRight) {
+      const leftBaseline = this.baselineTransforms.get(cheekLeft) ?? {
+        position: cheekLeft.position.clone(),
+        rotation: cheekLeft.rotation.clone(),
+        scale: cheekLeft.scale.clone(),
+      };
+      const rightBaseline = this.baselineTransforms.get(cheekRight) ?? {
+        position: cheekRight.position.clone(),
+        rotation: cheekRight.rotation.clone(),
+        scale: cheekRight.scale.clone(),
+      };
+      cheekLeft.position.set(
+        leftBaseline.position.x,
+        leftBaseline.position.y,
+        leftBaseline.position.z
+      );
+      cheekRight.position.set(
+        rightBaseline.position.x,
+        rightBaseline.position.y,
+        rightBaseline.position.z
+      );
+      cheekLeft.scale.set(leftBaseline.scale.x, leftBaseline.scale.y, leftBaseline.scale.z);
+      cheekRight.scale.set(rightBaseline.scale.x, rightBaseline.scale.y, rightBaseline.scale.z);
+    }
+
+    const eyeLeftWhite = this.faceParts.eyes.left.white;
+    const eyeRightWhite = this.faceParts.eyes.right.white;
+    if (eyeLeftWhite && eyeRightWhite) {
+      const leftBaseline = this.baselineTransforms.get(eyeLeftWhite) ?? {
+        position: eyeLeftWhite.position.clone(),
+        rotation: eyeLeftWhite.rotation.clone(),
+        scale: eyeLeftWhite.scale.clone(),
+      };
+      const rightBaseline = this.baselineTransforms.get(eyeRightWhite) ?? {
+        position: eyeRightWhite.position.clone(),
+        rotation: eyeRightWhite.rotation.clone(),
+        scale: eyeRightWhite.scale.clone(),
+      };
+      const eyeSpacing = clampFaceParameterValue('eyeSpacing', this.config.eyeSpacing);
+      const eyeStride = 0.052 + (1 - eyeSpacing) * 0.056;
+      eyeLeftWhite.position.set(-eyeStride, leftBaseline.position.y, leftBaseline.position.z);
+      eyeRightWhite.position.set(eyeStride, rightBaseline.position.y, rightBaseline.position.z);
+      const eyeScale = 0.9 + eyeSpacing * 0.44;
+      eyeLeftWhite.scale.set(
+        leftBaseline.scale.x * eyeScale,
+        leftBaseline.scale.y * eyeScale,
+        leftBaseline.scale.z * (0.95 + eyeSpacing * 0.25)
+      );
+      eyeRightWhite.scale.set(
+        rightBaseline.scale.x * eyeScale,
+        rightBaseline.scale.y * eyeScale,
+        rightBaseline.scale.z * (0.95 + eyeSpacing * 0.25)
+      );
+
+      const irisLeft = this.faceParts.eyes.left.iris;
+      const irisRight = this.faceParts.eyes.right.iris;
+      if (irisLeft && irisRight) {
+        const leftIrisBaseline = this.baselineTransforms.get(irisLeft) ?? {
+          position: irisLeft.position.clone(),
+          rotation: irisLeft.rotation.clone(),
+          scale: irisLeft.scale.clone(),
+        };
+        const rightIrisBaseline = this.baselineTransforms.get(irisRight) ?? {
+          position: irisRight.position.clone(),
+          rotation: irisRight.rotation.clone(),
+          scale: irisRight.scale.clone(),
+        };
+        irisLeft.position.set(-eyeStride, leftIrisBaseline.position.y, leftIrisBaseline.position.z);
+        irisRight.position.set(
+          eyeStride,
+          rightIrisBaseline.position.y,
+          rightIrisBaseline.position.z
+        );
+        irisLeft.scale.set(
+          leftIrisBaseline.scale.x * eyeScale,
+          leftIrisBaseline.scale.y * eyeScale,
+          leftIrisBaseline.scale.z * 1.05
+        );
+        irisRight.scale.set(
+          rightIrisBaseline.scale.x * eyeScale,
+          rightIrisBaseline.scale.y * eyeScale,
+          rightIrisBaseline.scale.z * 1.05
+        );
+      }
+
+      const leftEyelid = this.faceParts.eyes.left.eyelid;
+      const rightEyelid = this.faceParts.eyes.right.eyelid;
+      if (leftEyelid && rightEyelid) {
+        const leftEyelidBaseline = this.baselineTransforms.get(leftEyelid) ?? {
+          position: leftEyelid.position.clone(),
+          rotation: leftEyelid.rotation.clone(),
+          scale: leftEyelid.scale.clone(),
+        };
+        const rightEyelidBaseline = this.baselineTransforms.get(rightEyelid) ?? {
+          position: rightEyelid.position.clone(),
+          rotation: rightEyelid.rotation.clone(),
+          scale: rightEyelid.scale.clone(),
+        };
+        leftEyelid.position.set(
+          -eyeStride,
+          leftEyelidBaseline.position.y,
+          leftEyelidBaseline.position.z
+        );
+        rightEyelid.position.set(
+          eyeStride,
+          rightEyelidBaseline.position.y,
+          rightEyelidBaseline.position.z
+        );
+        leftEyelid.scale.set(
+          leftEyelidBaseline.scale.x * eyeScale,
+          leftEyelidBaseline.scale.y * eyeScale,
+          leftEyelidBaseline.scale.z * 1.05
+        );
+        rightEyelid.scale.set(
+          rightEyelidBaseline.scale.x * eyeScale,
+          rightEyelidBaseline.scale.y * eyeScale,
+          rightEyelidBaseline.scale.z * 1.05
+        );
       }
     }
 
-    const nose = this.root.getObjectByName('nose-part');
-    if (nose instanceof THREE.Mesh) {
-      nose.scale.set(
-        0.85 + this.config.nose * 0.66,
-        0.9 + this.config.nose * 0.82,
-        0.7 + (this.config.nose - 0.5) * 0.8
-      );
-      nose.position.z = 0.12 + (this.config.nose - 0.5) * 0.045;
+    const browLeft = this.faceParts.brows.left;
+    const browRight = this.faceParts.brows.right;
+    if (browLeft && browRight) {
+      const eyeSpacing = clampFaceParameterValue('eyeSpacing', this.config.eyeSpacing);
+      const brow = clampFaceParameterValue('brow', this.config.brow);
+      const eyeStride = 0.052 + (1 - eyeSpacing) * 0.056;
+      const baseLeftX = this.baselineTransforms.get(browLeft)?.position.x ?? browLeft.position.x;
+      const baseRightX = this.baselineTransforms.get(browRight)?.position.x ?? browRight.position.x;
+      const browLift = 0.07 + (brow - 0.5) * 0.05;
+      const baseLeftScaleX = this.baselineTransforms.get(browLeft)?.scale.x ?? browLeft.scale.x;
+      const baseRightScaleX = this.baselineTransforms.get(browRight)?.scale.x ?? browRight.scale.x;
+      browLeft.position.set(-eyeStride + (baseLeftX + 0.06) * 0.1, browLift, browLeft.position.z);
+      browRight.position.set(eyeStride + (baseRightX - 0.06) * 0.1, browLift, browRight.position.z);
+      browLeft.scale.x = baseLeftScaleX * (0.98 + brow * 0.52);
+      browRight.scale.x = baseRightScaleX * (0.98 + brow * 0.52);
+      browLeft.rotation.z = 0.34 + (brow - 1) * 0.12;
+      browRight.rotation.z = -0.34 - (brow - 1) * 0.12;
     }
 
-    const mouth = this.root.getObjectByName('mouth-part');
-    if (mouth instanceof THREE.Mesh) {
-      const mouthScaleX = 0.9 + (this.config.mouth - 0.5) * 0.9;
-      const mouthScaleY = 0.72 + (this.config.mouth - 0.5) * 0.35;
-      mouth.scale.set(mouthScaleX, mouthScaleY, 1);
-      mouth.position.y = -0.112 - (this.config.mouth - 0.5) * 0.014;
-      mouth.position.z = 0.116 + (this.config.mouth - 0.5) * 0.01;
-      mouth.rotation.z = Math.PI + (this.config.mouth - 0.5) * 0.75;
+    const nose = this.faceParts.nose;
+    if (nose) {
+      const noseSize = clampFaceParameterValue('nose', this.config.nose);
+      const baseline = this.baselineTransforms.get(nose) ?? {
+        position: nose.position.clone(),
+        rotation: nose.rotation.clone(),
+        scale: nose.scale.clone(),
+      };
+      nose.scale.set(
+        (baseline.scale.x * (1.06 + noseSize * 0.92)) / 0.95,
+        (baseline.scale.y * (1.18 + noseSize * 1.06)) / 0.98,
+        (baseline.scale.z * (0.92 + (noseSize - 0.5) * 1.08)) / 1.1
+      );
+      nose.position.set(
+        baseline.position.x,
+        baseline.position.y + (noseSize - 0.5) * 0.03,
+        baseline.position.z + (noseSize - 0.5) * 0.08
+      );
+    }
+
+    const mouth = this.faceParts.mouth;
+    if (mouth) {
+      const mouthSize = clampFaceParameterValue('mouth', this.config.mouth);
+      const baseline = this.baselineTransforms.get(mouth) ?? {
+        position: mouth.position.clone(),
+        rotation: mouth.rotation.clone(),
+        scale: mouth.scale.clone(),
+      };
+      const mouthScaleX = 1.06 + (mouthSize - 0.5) * 1.15;
+      const mouthScaleY = 0.86 + (mouthSize - 0.5) * 0.5;
+      mouth.scale.set(
+        baseline.scale.x * mouthScaleX,
+        baseline.scale.y * mouthScaleY,
+        baseline.scale.z * 1.08
+      );
+      mouth.position.set(
+        baseline.position.x,
+        baseline.position.y - (mouthSize - 0.5) * 0.012,
+        baseline.position.z + (mouthSize - 0.5) * 0.018
+      );
+      mouth.rotation.z = Math.PI + (mouthSize - 0.5) * 0.75;
     }
 
     const beard = this.root.getObjectByName('beard-part');
@@ -1464,7 +2104,7 @@ export class Golfer {
   private hand = new THREE.Group();
   private disc!: THREE.Mesh;
   private face!: Face;
-  private appearance: GolferAppearance;
+  public appearance: GolferAppearance;
   private baseY = 0;
   private look: GolferLook;
 
@@ -1498,7 +2138,7 @@ export class Golfer {
     };
     const normalized = this.normalizeAppearance(look as Partial<GolferAppearance>);
     this.appearance = normalized;
-    this.avatarModelId = normalized.avatarModelId ?? 'male';
+    this.avatarModelId = normalized.avatarModelId ?? 'none';
     this.root.scale.setScalar(GOLFER_SCALE * (this.look.build ?? 1));
     this.build();
     this.applyProfileToRig();
@@ -1573,8 +2213,11 @@ export class Golfer {
     this.attachPoints.clear();
     this.accessories.clear();
 
-    if (this.avatarModelId && AVATAR_MODEL_URLS[this.avatarModelId]) {
-      this.loadModelAvatar(this.avatarModelId);
+    if (
+      this.avatarModelId !== 'none' &&
+      AVATAR_MODEL_URLS[this.avatarModelId as 'male' | 'female']
+    ) {
+      this.loadModelAvatar(this.avatarModelId as 'male' | 'female');
       return;
     }
 
@@ -1611,6 +2254,7 @@ export class Golfer {
       new THREE.CylinderGeometry(0.062, 0.07, 0.1, 10),
       new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.75 })
     );
+    neck.name = 'neck-part';
     neck.position.y = 0.74;
     torso.add(neck);
 
@@ -1632,6 +2276,9 @@ export class Golfer {
     };
     this.face = new Face(faceConfig);
     head.add(this.face.root);
+    this.root.userData.hairRoot = this.face.root.getObjectByName('hair-root') as
+      THREE.Group | undefined;
+    this.root.userData.faceRoot = this.face.root;
     this.attachPoints.set('head', head);
 
     const backPoint = new THREE.Group();
@@ -1733,6 +2380,11 @@ export class Golfer {
       head.scale.set(profile.headScale, profile.headScale, profile.headScale);
     }
 
+    const neck = this.root.getObjectByName('neck-part');
+    if (neck instanceof THREE.Mesh) {
+      neck.scale.set(profile.neckWidth, profile.neckLength, profile.neckWidth);
+    }
+
     const pelvis = this.root.getObjectByName('pelvis-part');
     if (pelvis instanceof THREE.Mesh) {
       pelvis.scale.set(1.06 * profile.hipWidth, 1, 0.82 * profile.torsoTaper);
@@ -1791,7 +2443,38 @@ export class Golfer {
     this.onAvatarStatusChange = listener;
   }
 
+  getHairRoot(): THREE.Group | undefined {
+    const resolved = this.root.getObjectByName('hair-root') as THREE.Group | undefined;
+    if (resolved) {
+      this.root.userData.hairRoot = resolved;
+      return resolved;
+    }
+
+    const head = this.joints.get('head');
+    const nested = head?.getObjectByName('hair-root') as THREE.Group | undefined;
+    if (nested) {
+      this.root.userData.hairRoot = nested;
+      return nested;
+    }
+
+    return undefined;
+  }
+
+  setHeadOnlyPreview(enabled: boolean) {
+    const groups: Array<JointName> = ['shoulderL', 'shoulderR', 'elbowL', 'elbowR'];
+    groups.forEach((name) => {
+      const group = this.joints.get(name);
+      if (group) {
+        group.visible = !enabled;
+      }
+    });
+  }
+
   private loadModelAvatar(modelId: AvatarModelId) {
+    if (modelId === 'none') {
+      return;
+    }
+
     const url = AVATAR_MODEL_URLS[modelId];
     if (!url) {
       return;
@@ -1966,6 +2649,14 @@ export class Golfer {
     this.joints.clear();
     this.clearAvatarModelContent();
     this.root.visible = true;
+
+    if (modelId === 'none') {
+      this.build();
+      this.applyProfileToRig();
+      this.applyPose(STAND_POSE, STAND_POSE, 0);
+      return;
+    }
+
     this.loadModelAvatar(modelId);
   }
 
@@ -1981,6 +2672,11 @@ export class Golfer {
     merged.bodyProfile = nextBodyProfile.id;
     if (options.avatarModelId) {
       this.setAvatarModelId(options.avatarModelId);
+    }
+
+    const hairRoot = this.getHairRoot();
+    if (hairRoot) {
+      this.root.userData.hairRoot = hairRoot;
     }
 
     const outfit = {

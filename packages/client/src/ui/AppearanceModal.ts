@@ -2,9 +2,12 @@ import * as THREE from 'three';
 import {
   BODY_PROFILES,
   DEFAULT_GOLFER_APPEARANCE,
+  FACE_PARAMETER_LIMITS,
   FACE_PRESETS,
   Face,
   Golfer,
+  clampFaceParameterValue,
+  printSceneGraph,
   type AccessorySlot,
   type BodyProfileId,
   type FacePresetId,
@@ -13,6 +16,7 @@ import {
 } from '@/rendering/Golfer';
 
 export type AppearanceModalMode = 'face' | 'look';
+export type FacePreviewOrientation = 'front' | 'back' | 'right' | 'left';
 
 export interface AppearanceModalOptions {
   playerName: string;
@@ -54,6 +58,7 @@ export class AppearanceModal {
   private readonly camera: THREE.PerspectiveCamera;
   private readonly pointer = { down: false, x: 0, y: 0 };
   private view: AppearanceModalMode;
+  private facePreviewOrientation: FacePreviewOrientation = 'front';
   private readonly cameraTarget = new THREE.Vector3();
   private readonly previewObserver: ResizeObserver;
   private readonly onApply: (
@@ -76,7 +81,7 @@ export class AppearanceModal {
     this.initialAccessories = { ...options.initialAccessories };
     this.draft = {
       ...options.initialAppearance,
-      avatarModelId: options.initialAppearance.avatarModelId ?? 'male',
+      avatarModelId: 'none',
       facePreset: options.initialAppearance.facePreset ?? 'male',
       face: {
         ...options.initialAppearance.face,
@@ -145,7 +150,8 @@ export class AppearanceModal {
     this.isolatedFaceBadge.hidden = true;
 
     const presetGroup = this.buildHeaderPresetButtons();
-    titleRow.append(playerName, presetGroup);
+    const orientationGroup = this.buildHeaderOrientationButtons();
+    titleRow.append(playerName, presetGroup, orientationGroup);
     title.append(titleLabel, versionBadge, this.isolatedFaceBadge, titleRow);
 
     const close = document.createElement('button');
@@ -167,6 +173,7 @@ export class AppearanceModal {
 
     this.controlsWrap = document.createElement('div');
     this.controlsWrap.className = 'appearance-controls';
+    this.controlsWrap.appendChild(this.buildFaceDebugPanel());
     this.controlsWrap.appendChild(this.buildControls());
 
     const modeToggle = document.createElement('div');
@@ -216,9 +223,15 @@ export class AppearanceModal {
     reset.className = 'appearance-button secondary';
     reset.textContent = 'Reset';
     reset.addEventListener('click', () => {
-      this.draft = { ...this.initialAppearance };
+      this.draft = {
+        ...this.initialAppearance,
+        avatarModelId: 'none',
+        facePreset: this.initialAppearance.facePreset ?? 'male',
+      };
       this.accessories = { ...this.initialAccessories };
       this.preview.setAppearance(this.draft);
+      this.syncFaceModelFromDraft();
+      this.syncPreviewVisibility();
       this.syncDraftControls();
       this.resetView();
       this.onReset?.(this.draft);
@@ -339,18 +352,29 @@ export class AppearanceModal {
     this.isolatedFaceRoot.position.set(0, 0.1, 0);
     this.isolatedFaceRoot.scale.set(1, 1, 1);
     this.scene.add(this.isolatedFaceRoot);
+    this.syncFaceModelFromDraft();
 
     this.preview = new Golfer(this.draft);
     this.preview.setAvatarStateListener((status, message) => {
-      this.previewStatus.textContent = message;
-      this.previewStatus.hidden = status === 'loaded';
+      const isLoadingRealAvatar = status === 'loading';
+      this.previewStatus.textContent = isLoadingRealAvatar ? message : '';
+      this.previewStatus.hidden = !isLoadingRealAvatar;
     });
     this.preview.root.rotation.set(0, 0, 0);
+    this.preview.root.rotation.y =
+      this.view === 'face' ? this.getFaceYaw(this.facePreviewOrientation) : 0;
     this.preview.root.position.y = -0.62;
     this.preview.root.scale.setScalar(1.55);
+    this.previewStatus.hidden = true;
     this.scene.add(this.preview.root);
 
+    if (import.meta.env.DEV) {
+      printSceneGraph(this.isolatedFaceRoot, '[FACE PREVIEW GRAPH]');
+      printSceneGraph(this.preview.root, '[FULL GOLFER GRAPH]');
+    }
+
     this.clearLegacyDiagnosticsState();
+    this.syncPreviewVisibility();
     this.bindPreviewInteractivity(renderCanvas);
     this.bindKeyboard();
     this.syncDraftControls();
@@ -363,9 +387,153 @@ export class AppearanceModal {
     close.focus();
   }
 
+  private buildFaceDebugPanel(): HTMLElement {
+    const panel = document.createElement('div');
+    panel.className = 'face-debug-panel is-collapsed';
+
+    const header = document.createElement('div');
+    header.className = 'face-debug-header';
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'face-debug-toggle';
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-controls', 'face-debug-content');
+
+    const chevron = document.createElement('span');
+    chevron.className = 'face-debug-chevron';
+    chevron.textContent = '▸';
+
+    const title = document.createElement('span');
+    title.className = 'face-debug-title';
+    title.textContent = 'Face diagnostics';
+    toggle.append(chevron, title);
+
+    const content = document.createElement('div');
+    content.className = 'face-debug-content';
+    content.hidden = true;
+
+    const toggles = ['Head', 'Jaw', 'Eyes', 'Nose', 'Mouth', 'Brows', 'Stubble', 'Hair'];
+    toggles.forEach((label, index) => {
+      const row = document.createElement('label');
+      row.className = 'face-debug-control';
+      if (index === 0) {
+        row.classList.add('face-debug-control--primary');
+      }
+      const text = document.createElement('span');
+      text.textContent = label;
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = true;
+      input.setAttribute('aria-label', label);
+      row.append(text, input);
+      content.appendChild(row);
+    });
+
+    toggle.addEventListener('click', () => {
+      const collapsed = panel.classList.toggle('is-collapsed');
+      content.hidden = collapsed;
+      toggle.setAttribute('aria-expanded', String(!collapsed));
+      chevron.textContent = collapsed ? '▸' : '▾';
+    });
+
+    header.appendChild(toggle);
+    panel.append(header, content);
+    return panel;
+  }
+
   private buildControls(): HTMLElement {
     const panel = document.createElement('div');
     panel.className = 'appearance-control-groups';
+
+    if (this.view === 'face') {
+      panel.append(
+        this.colorRow('Skin tone', 'skinTone'),
+        this.colorRow('Hair color', 'hairColor'),
+        this.sliderRow(
+          'Head',
+          'headScale',
+          FACE_PARAMETER_LIMITS.headScale.min,
+          FACE_PARAMETER_LIMITS.headScale.max,
+          FACE_PARAMETER_LIMITS.headScale.step
+        ),
+        this.sliderRow(
+          'Jaw',
+          'jawWidth',
+          FACE_PARAMETER_LIMITS.jawWidth.min,
+          FACE_PARAMETER_LIMITS.jawWidth.max,
+          FACE_PARAMETER_LIMITS.jawWidth.step
+        ),
+        this.sliderRow(
+          'Chin',
+          'chinShape',
+          FACE_PARAMETER_LIMITS.chinShape.min,
+          FACE_PARAMETER_LIMITS.chinShape.max,
+          FACE_PARAMETER_LIMITS.chinShape.step
+        ),
+        this.sliderRow(
+          'Brows',
+          'brow',
+          FACE_PARAMETER_LIMITS.brow.min,
+          FACE_PARAMETER_LIMITS.brow.max,
+          FACE_PARAMETER_LIMITS.brow.step
+        ),
+        this.sliderRow(
+          'Nose',
+          'nose',
+          FACE_PARAMETER_LIMITS.nose.min,
+          FACE_PARAMETER_LIMITS.nose.max,
+          FACE_PARAMETER_LIMITS.nose.step
+        ),
+        this.sliderRow(
+          'Eyes',
+          'eyeSpacing',
+          FACE_PARAMETER_LIMITS.eyeSpacing.min,
+          FACE_PARAMETER_LIMITS.eyeSpacing.max,
+          FACE_PARAMETER_LIMITS.eyeSpacing.step
+        ),
+        this.sliderRow(
+          'Mouth',
+          'mouth',
+          FACE_PARAMETER_LIMITS.mouth.min,
+          FACE_PARAMETER_LIMITS.mouth.max,
+          FACE_PARAMETER_LIMITS.mouth.step
+        ),
+        this.sliderRow(
+          'Beard',
+          'beard',
+          FACE_PARAMETER_LIMITS.beard.min,
+          FACE_PARAMETER_LIMITS.beard.max,
+          FACE_PARAMETER_LIMITS.beard.step
+        ),
+        this.sliderRow(
+          'Stubble',
+          'stubble',
+          FACE_PARAMETER_LIMITS.stubble.min,
+          FACE_PARAMETER_LIMITS.stubble.max,
+          FACE_PARAMETER_LIMITS.stubble.step
+        )
+      );
+    } else {
+      panel.append(
+        this.colorRow('Shirt color', 'shirtColor'),
+        this.colorRow('Shorts color', 'shortsColor'),
+        this.colorRow('Accent color', 'accentColor'),
+        this.colorRow('Shoe color', 'shoeColor'),
+        this.sliderRow('Shoulder width', 'shoulderWidth', 0.5, 1.5, 0.01),
+        this.sliderRow('Torso length', 'torsoLength', 0.5, 1.5, 0.01),
+        this.sliderRow('Torso taper', 'torsoTaper', 0.4, 1.4, 0.01),
+        this.sliderRow('Hip width', 'hipWidth', 0.5, 1.5, 0.01),
+        this.sliderRow('Arm thickness', 'armThickness', 0.5, 1.6, 0.01),
+        this.sliderRow('Leg length', 'legLength', 0.6, 1.5, 0.01),
+        this.sliderRow('Leg taper', 'legTaper', 0.5, 1.5, 0.01),
+        this.sliderRow('Sleeve length', 'sleeveLength', 0.4, 1.6, 0.01),
+        this.sliderRow('Collar height', 'collarHeight', 0.4, 1.6, 0.01),
+        this.sliderRow('Shirt fit', 'shirtFit', 0.4, 1.6, 0.01),
+        this.sliderRow('Shorts length', 'shortsLength', 0.4, 1.6, 0.01),
+        this.sliderRow('Pants fit', 'pantsFit', 0.4, 1.6, 0.01)
+      );
+    }
 
     panel.append(
       this.selectRow('Avatar model', 'avatarModelId', ['male', 'female']),
@@ -373,27 +541,70 @@ export class AppearanceModal {
         'athleticMale',
         'athleticFemale',
         'neutralLean',
-      ]),
-      this.selectRow('Hair style', 'hairStyle', [
-        'shortCrop',
-        'sidePart',
-        'undercut',
-        'buzzCut',
-        'ponytail',
-        'bun',
-        'bald',
       ])
     );
+
+    if (this.view === 'face') {
+      panel.append(
+        this.selectRow('Hair style', 'hairStyle', [
+          'shortCrop',
+          'sidePart',
+          'undercut',
+          'buzzCut',
+          'ponytail',
+          'bun',
+          'bald',
+        ])
+      );
+    }
 
     return panel;
   }
 
   private clearLegacyDiagnosticsState() {
-    this.isolatedFaceRoot.visible = false;
     this.isolatedFaceBadge.hidden = true;
-    if (this.preview) {
-      this.preview.root.visible = true;
+    this.syncPreviewVisibility();
+  }
+
+  private syncPreviewVisibility() {
+    if (!this.preview) {
+      return;
     }
+
+    const showFaceOnly = this.view === 'face';
+    this.preview.root.visible = !showFaceOnly;
+    this.isolatedFaceRoot.visible = showFaceOnly;
+    this.preview.setHeadOnlyPreview(!showFaceOnly);
+    if (showFaceOnly) {
+      this.preview.root.rotation.x = 0;
+      this.preview.root.rotation.y = this.getFaceYaw(this.facePreviewOrientation);
+      this.preview.root.rotation.z = 0;
+      this.isolatedFaceRoot.position.set(0, 0.1, 0);
+      this.isolatedFaceRoot.rotation.set(0, 0, 0);
+      this.isolatedFaceRoot.scale.set(1.45, 1.45, 1.45);
+    } else {
+      this.preview.root.rotation.set(0, 0, 0);
+    }
+  }
+
+  private syncFaceModelFromDraft() {
+    const profile = this.draft.profile ?? BODY_PROFILES[this.draft.bodyProfile ?? 'athleticMale'];
+    const baseFace = this.draft.face ?? FACE_PRESETS[this.draft.facePreset ?? 'male'];
+    this.isolatedFace.setConfig({
+      preset: this.draft.facePreset ?? 'male',
+      skinTone: this.draft.skinTone ?? DEFAULT_GOLFER_APPEARANCE.skinTone,
+      hairColor: this.draft.hairColor ?? DEFAULT_GOLFER_APPEARANCE.hairColor,
+      hairStyle: this.draft.hairStyle ?? DEFAULT_GOLFER_APPEARANCE.hairStyle,
+      headScale: profile.headScale,
+      jawWidth: profile.jawWidth,
+      chinShape: profile.chinShape,
+      brow: baseFace.brow,
+      nose: baseFace.nose,
+      eyeSpacing: baseFace.eyeSpacing,
+      mouth: baseFace.mouth,
+      beard: baseFace.beard,
+      stubble: baseFace.stubble,
+    });
   }
 
   private buildHeaderPresetButtons(): HTMLDivElement {
@@ -417,6 +628,32 @@ export class AppearanceModal {
     return group;
   }
 
+  private buildHeaderOrientationButtons(): HTMLDivElement {
+    const group = document.createElement('div');
+    group.className = 'appearance-header-orientation-group';
+
+    (['front', 'back'] as FacePreviewOrientation[]).forEach((orientation) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'appearance-header-orientation';
+      button.dataset.orientation = orientation;
+      button.textContent = orientation.charAt(0).toUpperCase() + orientation.slice(1);
+      button.setAttribute('aria-pressed', String(this.facePreviewOrientation === orientation));
+      button.classList.toggle('is-selected', this.facePreviewOrientation === orientation);
+      button.addEventListener('click', () => {
+        this.facePreviewOrientation = orientation;
+        if (this.view !== 'face') {
+          this.view = 'face';
+          this.applyModeToggle();
+        }
+        this.resetView();
+      });
+      group.appendChild(button);
+    });
+
+    return group;
+  }
+
   private updateHeaderPresetButtons() {
     const group = this.root.querySelector('.appearance-header-preset-group');
     if (!group) {
@@ -431,10 +668,26 @@ export class AppearanceModal {
     });
   }
 
+  private updateHeaderOrientationButtons() {
+    const group = this.root.querySelector('.appearance-header-orientation-group');
+    if (!group) {
+      return;
+    }
+
+    group
+      .querySelectorAll<HTMLButtonElement>('.appearance-header-orientation')
+      .forEach((button) => {
+        const orientation = button.dataset.orientation as FacePreviewOrientation | undefined;
+        const isSelected = orientation === this.facePreviewOrientation;
+        button.setAttribute('aria-pressed', String(isSelected));
+        button.classList.toggle('is-selected', isSelected);
+      });
+  }
+
   private applyFacePreset(preset: FacePresetId) {
     const next = { ...FACE_PRESETS[preset] };
     this.draft.facePreset = preset;
-    this.draft.avatarModelId = preset === 'female' ? 'female' : 'male';
+    this.draft.avatarModelId = 'none';
     this.draft.skinTone = next.skinTone;
     this.draft.hairStyle = next.hairStyle as HairStyle;
     this.draft.hairColor = next.hairColor;
@@ -454,8 +707,10 @@ export class AppearanceModal {
       stubble: next.stubble,
     };
     this.preview.setAppearance(this.draft);
+    this.syncFaceModelFromDraft();
     this.syncDraftControls();
     this.updateHeaderPresetButtons();
+    this.updateHeaderOrientationButtons();
     this.resetView();
   }
 
@@ -503,15 +758,372 @@ export class AppearanceModal {
           ...FACE_PRESETS[preset],
         };
       } else if (key === 'avatarModelId') {
-        this.draft.avatarModelId = select.value as 'male' | 'female';
+        const model = select.value as 'male' | 'female';
+        this.draft.facePreset = model === 'female' ? 'female' : 'male';
+        this.draft.avatarModelId = 'none';
+        this.applyFacePreset(this.draft.facePreset);
       }
       this.preview.setAppearance(this.draft);
+      this.syncFaceModelFromDraft();
       this.clearLegacyDiagnosticsState();
       this.resetView();
     });
 
     row.append(meta, select);
     return row;
+  }
+
+  private colorRow(
+    label: string,
+    key: 'skinTone' | 'hairColor' | 'shirtColor' | 'shortsColor' | 'accentColor' | 'shoeColor'
+  ): HTMLLabelElement {
+    const row = document.createElement('label');
+    row.className = 'appearance-control';
+    const meta = document.createElement('span');
+    meta.textContent = label;
+    const input = document.createElement('input');
+    input.type = 'color';
+    input.dataset.key = key;
+    input.value = '#' + this.getColorValue(key).toString(16).padStart(6, '0');
+    input.addEventListener('input', () => {
+      this.setColorValue(key, Number.parseInt(input.value.slice(1), 16));
+      this.preview.setAppearance(this.draft);
+      this.syncFaceModelFromDraft();
+      this.clearLegacyDiagnosticsState();
+      this.resetView();
+    });
+    row.append(meta, input);
+    return row;
+  }
+
+  private sliderRow(
+    label: string,
+    key:
+      | 'headScale'
+      | 'jawWidth'
+      | 'chinShape'
+      | 'brow'
+      | 'nose'
+      | 'eyeSpacing'
+      | 'mouth'
+      | 'beard'
+      | 'stubble'
+      | 'shoulderWidth'
+      | 'torsoLength'
+      | 'neckWidth'
+      | 'neckLength'
+      | 'torsoTaper'
+      | 'hipWidth'
+      | 'armThickness'
+      | 'legLength'
+      | 'legTaper'
+      | 'sleeveLength'
+      | 'collarHeight'
+      | 'shirtFit'
+      | 'shortsLength'
+      | 'pantsFit',
+    min: number,
+    max: number,
+    step: number
+  ): HTMLLabelElement {
+    const row = document.createElement('label');
+    row.className = 'appearance-control';
+    const meta = document.createElement('span');
+    meta.textContent = label;
+    const value = document.createElement('output');
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.dataset.key = key;
+    input.min = String(min);
+    input.max = String(max);
+    input.step = String(step);
+    input.value = String(this.getNumericValue(key));
+    const updateValue = () => {
+      value.textContent = Number.parseFloat(input.value).toFixed(step < 1 ? 2 : 0);
+    };
+    updateValue();
+    input.addEventListener('input', () => {
+      updateValue();
+      this.setNumericValue(key, Number.parseFloat(input.value));
+      this.preview.setAppearance(this.draft);
+      this.syncFaceModelFromDraft();
+      this.clearLegacyDiagnosticsState();
+      this.resetView();
+    });
+    row.append(meta, value, input);
+    return row;
+  }
+
+  private getNumericValue(
+    key:
+      | 'headScale'
+      | 'jawWidth'
+      | 'chinShape'
+      | 'brow'
+      | 'nose'
+      | 'eyeSpacing'
+      | 'mouth'
+      | 'beard'
+      | 'stubble'
+      | 'shoulderWidth'
+      | 'torsoLength'
+      | 'neckWidth'
+      | 'neckLength'
+      | 'torsoTaper'
+      | 'hipWidth'
+      | 'armThickness'
+      | 'legLength'
+      | 'legTaper'
+      | 'sleeveLength'
+      | 'collarHeight'
+      | 'shirtFit'
+      | 'shortsLength'
+      | 'pantsFit'
+  ): number {
+    const profile = this.draft.profile ?? BODY_PROFILES[this.draft.bodyProfile ?? 'athleticMale'];
+    const face = this.draft.face ?? FACE_PRESETS[this.draft.facePreset ?? 'male'];
+    const outfit = this.draft.outfit ?? {
+      sleeveLength: 1,
+      collarHeight: 1,
+      shirtFit: 1,
+      shortsLength: 1,
+      pantsFit: 0.9,
+    };
+
+    switch (key) {
+      case 'headScale':
+        return clampFaceParameterValue(
+          'headScale',
+          profile.headScale ?? FACE_PARAMETER_LIMITS.headScale.default
+        );
+      case 'jawWidth':
+        return clampFaceParameterValue(
+          'jawWidth',
+          profile.jawWidth ?? FACE_PARAMETER_LIMITS.jawWidth.default
+        );
+      case 'chinShape':
+        return clampFaceParameterValue(
+          'chinShape',
+          profile.chinShape ?? FACE_PARAMETER_LIMITS.chinShape.default
+        );
+      case 'brow':
+        return clampFaceParameterValue('brow', face.brow ?? FACE_PARAMETER_LIMITS.brow.default);
+      case 'nose':
+        return clampFaceParameterValue('nose', face.nose ?? FACE_PARAMETER_LIMITS.nose.default);
+      case 'eyeSpacing':
+        return clampFaceParameterValue(
+          'eyeSpacing',
+          face.eyeSpacing ?? FACE_PARAMETER_LIMITS.eyeSpacing.default
+        );
+      case 'mouth':
+        return clampFaceParameterValue('mouth', face.mouth ?? FACE_PARAMETER_LIMITS.mouth.default);
+      case 'beard':
+        return clampFaceParameterValue('beard', face.beard ?? FACE_PARAMETER_LIMITS.beard.default);
+      case 'stubble':
+        return clampFaceParameterValue(
+          'stubble',
+          face.stubble ?? FACE_PARAMETER_LIMITS.stubble.default
+        );
+      case 'shoulderWidth':
+        return profile.shoulderWidth;
+      case 'torsoLength':
+        return profile.torsoLength;
+      case 'neckWidth':
+        return profile.neckWidth;
+      case 'neckLength':
+        return profile.neckLength;
+      case 'torsoTaper':
+        return profile.torsoTaper;
+      case 'hipWidth':
+        return profile.hipWidth;
+      case 'armThickness':
+        return profile.armThickness;
+      case 'legLength':
+        return profile.legLength;
+      case 'legTaper':
+        return profile.legTaper;
+      case 'sleeveLength':
+        return outfit.sleeveLength;
+      case 'collarHeight':
+        return outfit.collarHeight;
+      case 'shirtFit':
+        return outfit.shirtFit;
+      case 'shortsLength':
+        return outfit.shortsLength;
+      case 'pantsFit':
+        return outfit.pantsFit;
+      default:
+        return 1;
+    }
+  }
+
+  private setNumericValue(
+    key:
+      | 'headScale'
+      | 'jawWidth'
+      | 'chinShape'
+      | 'brow'
+      | 'nose'
+      | 'eyeSpacing'
+      | 'mouth'
+      | 'beard'
+      | 'stubble'
+      | 'shoulderWidth'
+      | 'torsoLength'
+      | 'neckWidth'
+      | 'neckLength'
+      | 'torsoTaper'
+      | 'hipWidth'
+      | 'armThickness'
+      | 'legLength'
+      | 'legTaper'
+      | 'sleeveLength'
+      | 'collarHeight'
+      | 'shirtFit'
+      | 'shortsLength'
+      | 'pantsFit',
+    value: number
+  ) {
+    const nextProfile = {
+      ...(this.draft.profile ?? BODY_PROFILES[this.draft.bodyProfile ?? 'athleticMale']),
+    };
+    const nextFace = { ...(this.draft.face ?? FACE_PRESETS[this.draft.facePreset ?? 'male']) };
+    const nextOutfit = {
+      ...(this.draft.outfit ?? {
+        sleeveLength: 1,
+        collarHeight: 1,
+        shirtFit: 1,
+        shortsLength: 1,
+        pantsFit: 0.9,
+      }),
+    };
+
+    switch (key) {
+      case 'headScale':
+        nextProfile.headScale = clampFaceParameterValue('headScale', value);
+        break;
+      case 'jawWidth':
+        nextProfile.jawWidth = clampFaceParameterValue('jawWidth', value);
+        break;
+      case 'chinShape':
+        nextProfile.chinShape = clampFaceParameterValue('chinShape', value);
+        break;
+      case 'brow':
+        nextFace.brow = clampFaceParameterValue('brow', value);
+        break;
+      case 'nose':
+        nextFace.nose = clampFaceParameterValue('nose', value);
+        break;
+      case 'eyeSpacing':
+        nextFace.eyeSpacing = clampFaceParameterValue('eyeSpacing', value);
+        break;
+      case 'mouth':
+        nextFace.mouth = clampFaceParameterValue('mouth', value);
+        break;
+      case 'beard':
+        nextFace.beard = clampFaceParameterValue('beard', value);
+        break;
+      case 'stubble':
+        nextFace.stubble = clampFaceParameterValue('stubble', value);
+        break;
+      case 'shoulderWidth':
+        nextProfile.shoulderWidth = value;
+        break;
+      case 'torsoLength':
+        nextProfile.torsoLength = value;
+        break;
+      case 'neckWidth':
+        nextProfile.neckWidth = value;
+        break;
+      case 'neckLength':
+        nextProfile.neckLength = value;
+        break;
+      case 'torsoTaper':
+        nextProfile.torsoTaper = value;
+        break;
+      case 'hipWidth':
+        nextProfile.hipWidth = value;
+        break;
+      case 'armThickness':
+        nextProfile.armThickness = value;
+        break;
+      case 'legLength':
+        nextProfile.legLength = value;
+        break;
+      case 'legTaper':
+        nextProfile.legTaper = value;
+        break;
+      case 'sleeveLength':
+        nextOutfit.sleeveLength = value;
+        break;
+      case 'collarHeight':
+        nextOutfit.collarHeight = value;
+        break;
+      case 'shirtFit':
+        nextOutfit.shirtFit = value;
+        break;
+      case 'shortsLength':
+        nextOutfit.shortsLength = value;
+        break;
+      case 'pantsFit':
+        nextOutfit.pantsFit = value;
+        break;
+      default:
+        break;
+    }
+
+    this.draft.profile = nextProfile;
+    this.draft.face = nextFace;
+    this.draft.outfit = nextOutfit;
+  }
+
+  private getColorValue(
+    key: 'skinTone' | 'hairColor' | 'shirtColor' | 'shortsColor' | 'accentColor' | 'shoeColor'
+  ): number {
+    switch (key) {
+      case 'skinTone':
+        return this.draft.skinTone ?? DEFAULT_GOLFER_APPEARANCE.skinTone;
+      case 'hairColor':
+        return this.draft.hairColor ?? DEFAULT_GOLFER_APPEARANCE.hairColor;
+      case 'shirtColor':
+        return this.draft.shirtColor ?? DEFAULT_GOLFER_APPEARANCE.shirtColor;
+      case 'shortsColor':
+        return this.draft.shortsColor ?? DEFAULT_GOLFER_APPEARANCE.shortsColor;
+      case 'accentColor':
+        return this.draft.accentColor ?? DEFAULT_GOLFER_APPEARANCE.accentColor ?? 0xd72638;
+      case 'shoeColor':
+        return this.draft.shoeColor ?? DEFAULT_GOLFER_APPEARANCE.shoeColor;
+      default:
+        return DEFAULT_GOLFER_APPEARANCE.shirtColor;
+    }
+  }
+
+  private setColorValue(
+    key: 'skinTone' | 'hairColor' | 'shirtColor' | 'shortsColor' | 'accentColor' | 'shoeColor',
+    value: number
+  ) {
+    switch (key) {
+      case 'skinTone':
+        this.draft.skinTone = value;
+        break;
+      case 'hairColor':
+        this.draft.hairColor = value;
+        break;
+      case 'shirtColor':
+        this.draft.shirtColor = value;
+        break;
+      case 'shortsColor':
+        this.draft.shortsColor = value;
+        break;
+      case 'accentColor':
+        this.draft.accentColor = value;
+        break;
+      case 'shoeColor':
+        this.draft.shoeColor = value;
+        break;
+      default:
+        break;
+    }
   }
 
   private getSelectValue(
@@ -524,7 +1136,11 @@ export class AppearanceModal {
       return this.draft.hairStyle ?? 'shortCrop';
     }
     if (key === 'avatarModelId') {
-      return this.draft.avatarModelId ?? 'male';
+      return this.draft.avatarModelId === 'none'
+        ? this.draft.facePreset === 'female'
+          ? 'female'
+          : 'male'
+        : (this.draft.avatarModelId ?? 'male');
     }
     return this.draft.facePreset ?? 'neutral';
   }
@@ -596,47 +1212,109 @@ export class AppearanceModal {
   private getPreviewPreset() {
     if (this.view === 'face') {
       return {
-        paddingX: 0.58,
-        paddingY: 0.96,
-        minDistance: 0.72,
-        maxDistance: 3.2,
-        targetOffsetY: -0.08,
-        direction: new THREE.Vector3(0, -0.18, 1).normalize(),
+        paddingX: 0.22,
+        paddingY: 0.42,
+        minDistance: 0.42,
+        maxDistance: 2.2,
+        targetOffsetY: -0.02,
+        direction: new THREE.Vector3(0, -0.08, 1).normalize(),
       };
     }
 
     return {
-      paddingX: 1.2,
-      paddingY: 1.9,
+      paddingX: 0.8,
+      paddingY: 0.7,
       minDistance: 2.2,
       maxDistance: 7.2,
-      targetOffsetY: -0.34,
-      direction: new THREE.Vector3(0.08, -0.2, 1).normalize(),
+      targetOffsetY: 0.18,
+      direction: new THREE.Vector3(0.08, 0.18, 1).normalize(),
     };
+  }
+
+  private frameBodyPreview(golferRoot: THREE.Object3D) {
+    const bounds = new THREE.Box3().setFromObject(golferRoot);
+    if (bounds.isEmpty()) {
+      return;
+    }
+
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    bounds.getSize(size);
+    bounds.getCenter(center);
+
+    const target = center.clone();
+    target.y += Math.max(0.03, size.y * 0.02);
+    this.camera.aspect = this.previewHost.clientWidth / Math.max(this.previewHost.clientHeight, 1);
+    this.camera.updateProjectionMatrix();
+
+    const verticalFov = THREE.MathUtils.degToRad(this.camera.fov);
+    const paddingY = Math.max(0.18, size.y * 0.08);
+    const paddingX = Math.max(0.24, size.x * 0.08);
+    const paddedHeight = size.y + paddingY * 2;
+    const paddedWidth = size.x + paddingX * 2;
+    const distanceForHeight = paddedHeight / 2 / Math.tan(verticalFov / 2);
+    const distanceForWidth = paddedWidth / 2 / (Math.tan(verticalFov / 2) * this.camera.aspect);
+    const requiredDistance = Math.max(distanceForHeight, distanceForWidth) * 1.08;
+    const distance = clamp(requiredDistance, 2.5, 8.5);
+    const direction = new THREE.Vector3(0.06, 0.07, 1).normalize();
+
+    this.camera.position.copy(target.clone().add(direction.multiplyScalar(distance)));
+    this.camera.lookAt(target);
+    this.cameraTarget.copy(target);
+
+    if (import.meta.env.DEV) {
+      console.log('[BODY PREVIEW BOUNDS]', {
+        min: bounds.min.toArray(),
+        max: bounds.max.toArray(),
+        size: size.toArray(),
+        center: center.toArray(),
+        cameraFov: this.camera.fov,
+        cameraAspect: this.camera.aspect,
+        fitDistance: distance,
+        cameraPosition: this.camera.position.toArray(),
+        target: target.toArray(),
+      });
+    }
+  }
+
+  private getFaceYaw(orientation: FacePreviewOrientation): number {
+    switch (orientation) {
+      case 'front':
+        return 0;
+      case 'back':
+        return Math.PI;
+      default:
+        return 0;
+    }
   }
 
   private resetView() {
     const preset = this.getPreviewPreset();
 
     let target = new THREE.Vector3();
+    const targetRoot = this.view === 'face' ? this.isolatedFaceRoot : this.preview.root;
+    const objectBox = new THREE.Box3().setFromObject(targetRoot);
+    if (objectBox.isEmpty()) {
+      return;
+    }
+    target.copy(objectBox.getCenter(new THREE.Vector3()));
+
     if (this.view === 'face') {
-      const headPart = this.preview.root.getObjectByName('head-part');
+      const headPart = this.isolatedFaceRoot.getObjectByName('head-part');
       if (headPart) {
         const headWorld = headPart.getWorldPosition(new THREE.Vector3());
         target.copy(headWorld);
-      } else {
-        const objectBox = new THREE.Box3().setFromObject(this.preview.root);
-        if (objectBox.isEmpty()) {
-          return;
-        }
-        target.copy(objectBox.getCenter(new THREE.Vector3()));
       }
-    } else {
-      const objectBox = new THREE.Box3().setFromObject(this.preview.root);
-      if (objectBox.isEmpty()) {
-        return;
-      }
-      target.copy(objectBox.getCenter(new THREE.Vector3()));
+    }
+
+    if (this.view === 'look') {
+      this.frameBodyPreview(this.preview.root);
+      this.preview.root.rotation.x = 0;
+      this.preview.root.rotation.y = 0;
+      this.preview.root.rotation.z = 0;
+      this.isolatedFaceRoot.rotation.set(0, 0, 0);
+      this.updateHeaderOrientationButtons();
+      return;
     }
 
     target.y += preset.targetOffsetY;
@@ -662,14 +1340,18 @@ export class AppearanceModal {
     this.camera.lookAt(target);
     this.camera.updateProjectionMatrix();
     this.preview.root.rotation.x = 0;
-    this.preview.root.rotation.y = 0;
+    this.preview.root.rotation.y = this.getFaceYaw(this.facePreviewOrientation);
     this.preview.root.rotation.z = 0;
+    this.isolatedFaceRoot.rotation.x = 0;
+    this.isolatedFaceRoot.rotation.y = this.getFaceYaw(this.facePreviewOrientation);
+    this.isolatedFaceRoot.rotation.z = 0;
     this.cameraTarget.copy(target);
+    this.updateHeaderOrientationButtons();
   }
 
   private animate = () => {
     this.renderer.render(this.scene, this.camera);
-    if (this.view === 'look') {
+    if (this.view === 'look' && !this.pointer.down) {
       this.preview.root.rotation.y += 0.003;
     }
     this.animationId = requestAnimationFrame(this.animate);
@@ -709,6 +1391,8 @@ export class AppearanceModal {
     modeToggle.append(faceToggle, bodyToggle);
     this.controlsWrap.prepend(modeToggle);
     this.preview.setAppearance(this.draft);
+    this.syncFaceModelFromDraft();
+    this.syncPreviewVisibility();
     this.resetView();
   }
 

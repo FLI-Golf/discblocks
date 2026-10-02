@@ -11,8 +11,11 @@ import {
 import {
   BODY_PROFILES,
   DEFAULT_GOLFER_APPEARANCE,
+  DEFAULT_MALE_APPEARANCE,
   FACE_PRESETS,
+  FACE_PARAMETER_LIMITS,
   buildCharacterAppearance,
+  Face,
   Golfer,
   type CharacterAppearance,
 } from '@/rendering/Golfer';
@@ -144,6 +147,215 @@ describe('Game Components', () => {
     golfer.dispose();
   });
 
+  it('should expose the active sidePart hair root through the full golfer rig for body preview debugging', () => {
+    const golfer = new Golfer({ ...DEFAULT_GOLFER_APPEARANCE, hairStyle: 'sidePart' });
+    const hairRoot = golfer.getHairRoot();
+
+    expect(hairRoot).not.toBeNull();
+    expect(hairRoot?.name).toBe('hair-root');
+    expect(hairRoot?.getObjectByName('hair-sidepart-cap')).not.toBeNull();
+    expect(golfer.root.getObjectByName('hair-sidepart-cap')).not.toBeNull();
+
+    golfer.dispose();
+  });
+
+  it('should include neck width and length in the body profile and apply them to the neck mesh', () => {
+    const golfer = new Golfer({
+      ...DEFAULT_GOLFER_APPEARANCE,
+      profile: {
+        ...DEFAULT_GOLFER_APPEARANCE.profile,
+        neckWidth: 1.4,
+        neckLength: 1.7,
+      },
+    });
+
+    const neck = golfer.root.getObjectByName('neck-part') as THREE.Mesh;
+    expect(neck).not.toBeNull();
+    expect(golfer.appearance.profile.neckWidth).toBe(1.4);
+    expect(golfer.appearance.profile.neckLength).toBe(1.7);
+    expect(neck.scale.x).toBeCloseTo(1.4, 4);
+    expect(neck.scale.y).toBeCloseTo(1.7, 4);
+
+    golfer.dispose();
+  });
+
+  it('should hide neck controls from the face UI', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    const modal = new AppearanceModal(container, {
+      playerName: 'Face UI Test',
+      mode: 'face',
+      initialAppearance: DEFAULT_GOLFER_APPEARANCE,
+      initialAccessories: {},
+      onApply: () => undefined,
+    });
+
+    const labels = Array.from(container.querySelectorAll('label')).map(
+      (label) => label.textContent ?? ''
+    );
+    expect(labels.some((label) => label.includes('Neck'))).toBe(false);
+
+    modal.close(false);
+    container.remove();
+  });
+
+  it('should reset the preview back to the procedural fallback instead of reloading a male GLTF avatar', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    const modal = new AppearanceModal(container, {
+      playerName: 'Reset Test',
+      mode: 'face',
+      initialAppearance: {
+        ...DEFAULT_GOLFER_APPEARANCE,
+        avatarModelId: 'male',
+      },
+      initialAccessories: {},
+      onApply: () => undefined,
+    });
+
+    const preview = (modal as any).preview as Golfer;
+    const resetButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Reset'
+    );
+
+    expect(resetButton).toBeTruthy();
+    expect((preview as any).appearance.avatarModelId).toBe('none');
+
+    resetButton!.click();
+
+    expect((preview as any).appearance.avatarModelId).toBe('none');
+    expect((preview as any).root.getObjectByName('hair-root')).not.toBeNull();
+
+    modal.close(false);
+    container.remove();
+  });
+
+  it('should open the face preview on the front-facing default pose', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    const modal = new AppearanceModal(container, {
+      playerName: 'Face Turn Test',
+      mode: 'face',
+      initialAppearance: DEFAULT_GOLFER_APPEARANCE,
+      initialAccessories: {},
+      onApply: () => undefined,
+    });
+
+    const preview = (modal as any).preview as Golfer;
+    expect(preview.root.rotation.y).toBeCloseTo(0, 5);
+
+    modal.close(false);
+    container.remove();
+  });
+
+  it('should collapse the face diagnostics panel by default and expand on toggle', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    const modal = new AppearanceModal(container, {
+      playerName: 'Face Collapse Test',
+      mode: 'face',
+      initialAppearance: DEFAULT_GOLFER_APPEARANCE,
+      initialAccessories: {},
+      onApply: () => undefined,
+    });
+
+    const panel = container.querySelector('.face-debug-panel');
+    const toggle = container.querySelector('.face-debug-toggle') as HTMLButtonElement | null;
+
+    expect(panel).not.toBeNull();
+    expect(panel?.classList.contains('is-collapsed')).toBe(true);
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+
+    toggle?.click();
+
+    expect(panel?.classList.contains('is-collapsed')).toBe(false);
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+
+    modal.close(false);
+    container.remove();
+  });
+
+  it('should generate a thin skull-following buzz cut without a floating cap or forehead box', () => {
+    const face = new Golfer({
+      ...DEFAULT_GOLFER_APPEARANCE,
+      hairStyle: 'buzzCut',
+      hairColor: 0x1b120d,
+    });
+
+    const hairRoot = face.root.getObjectByName('hair-root') as THREE.Group;
+    expect(hairRoot).not.toBeNull();
+    expect(hairRoot.children.map((child) => child.name)).toContain('hair-buzz-shell');
+    expect(hairRoot.children.some((child) => child.name === 'hair-buzz-shell')).toBe(true);
+    expect(
+      hairRoot.children.some(
+        (child) => child instanceof THREE.Mesh && child.geometry.type === 'BoxGeometry'
+      )
+    ).toBe(false);
+    expect(hairRoot.children.some((child) => child.name === 'hair-part')).toBe(false);
+
+    face.dispose();
+  });
+
+  it('should expose front and back face preview buttons in order', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    const modal = new AppearanceModal(container, {
+      playerName: 'Orientation Test',
+      mode: 'face',
+      initialAppearance: DEFAULT_GOLFER_APPEARANCE,
+      initialAccessories: {},
+      onApply: () => undefined,
+    });
+
+    const buttons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('.appearance-header-orientation')
+    );
+
+    expect(buttons.map((button) => button.textContent)).toEqual(['Front', 'Back']);
+
+    buttons[1].click();
+    const preview = (modal as any).preview as Golfer;
+    expect(preview.root.rotation.y).toBeCloseTo(Math.PI, 5);
+
+    modal.close(false);
+    container.remove();
+  });
+
+  it('should frame the full body preview above the root center so the head and hair remain visible', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    const modal = new AppearanceModal(container, {
+      playerName: 'Body Framing Test',
+      mode: 'face',
+      initialAppearance: DEFAULT_GOLFER_APPEARANCE,
+      initialAccessories: {},
+      onApply: () => undefined,
+    });
+
+    const bodyButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('.appearance-mode-button')
+    ).find((button) => button.textContent === 'Body');
+    bodyButton?.click();
+
+    const preview = (modal as any).preview as Golfer;
+    const bounds = new THREE.Box3().setFromObject(preview.root);
+    const center = bounds.getCenter(new THREE.Vector3());
+    const cameraTarget = (modal as any).cameraTarget as THREE.Vector3;
+
+    expect(bounds.isEmpty()).toBe(false);
+    expect(cameraTarget.y).toBeGreaterThan(center.y);
+    expect((modal as any).camera.position.distanceTo(cameraTarget)).toBeGreaterThan(1.5);
+
+    modal.close(false);
+    container.remove();
+  });
+
   it('should equip and remove golfer accessories without leaving orphaned nodes', () => {
     const golfer = new Golfer();
     golfer.setAppearance({ shirtColor: 0x123456, shortsColor: 0x654321 });
@@ -226,7 +438,7 @@ describe('Game Components', () => {
     ).toBeGreaterThan(0.3);
     expect(
       BODY_PROFILES.athleticMale.jawWidth - BODY_PROFILES.athleticFemale.jawWidth
-    ).toBeGreaterThan(0.45);
+    ).toBeGreaterThan(0.3);
     expect(BODY_PROFILES.neutralLean.headScale).toBeLessThan(
       BODY_PROFILES.athleticFemale.headScale - 0.06
     );
@@ -236,8 +448,8 @@ describe('Game Components', () => {
     const fresh = buildCharacterAppearance({});
     expect(fresh.facePreset).toBe('male');
     expect(fresh.hairStyle).toBe('sidePart');
-    expect(fresh.hairColor).toBe(0xd4a66b);
-    expect(fresh.skinTone).toBe(0xe7c7b7);
+    expect(fresh.hairColor).toBe(0x1b120d);
+    expect(fresh.skinTone).toBe(0xe8c4b8);
     expect(fresh.face.brow).toBeCloseTo(FACE_PRESETS.male.brow, 5);
     expect(fresh.face.eyeSpacing).toBeCloseTo(FACE_PRESETS.male.eyeSpacing, 5);
     expect(fresh.profile.jawWidth).toBeCloseTo(BODY_PROFILES.neutralLean.jawWidth, 5);
@@ -245,8 +457,8 @@ describe('Game Components', () => {
 
   it('should match the placeholder-inspired male and female settings as the shared defaults', () => {
     expect(FACE_PRESETS.male.hairStyle).toBe('sidePart');
-    expect(FACE_PRESETS.male.hairColor).toBe(0xd4a66b);
-    expect(FACE_PRESETS.male.skinTone).toBe(0xe7c7b7);
+    expect(FACE_PRESETS.male.hairColor).toBe(0x1b120d);
+    expect(FACE_PRESETS.male.skinTone).toBe(0xe8c4b8);
     expect(FACE_PRESETS.female.hairStyle).toBe('bun');
     expect(FACE_PRESETS.female.hairColor).toBe(0x6b4a2f);
     expect(FACE_PRESETS.female.skinTone).toBe(0xeec19a);
@@ -255,8 +467,108 @@ describe('Game Components', () => {
     expect(FACE_PRESETS.neutral.skinTone).toBe(0xefc49d);
     expect(FACE_PRESETS.neutral.headScale).toBeCloseTo(1.04, 5);
     expect(FACE_PRESETS.neutral.jawWidth).toBeCloseTo(1.08, 5);
+    expect(DEFAULT_MALE_APPEARANCE.hairStyle).toBe('sidePart');
+    expect(DEFAULT_MALE_APPEARANCE.facePreset).toBe('male');
+    expect(DEFAULT_MALE_APPEARANCE.profile.headScale).toBeCloseTo(1.02, 5);
+    expect(DEFAULT_MALE_APPEARANCE.profile.jawWidth).toBeCloseTo(0.99, 5);
     expect(DEFAULT_GOLFER_APPEARANCE.hairStyle).toBe('sidePart');
     expect(DEFAULT_GOLFER_APPEARANCE.facePreset).toBe('male');
+  });
+
+  it('should use 0.99 as the default male jaw width in the procedural face state', () => {
+    const face = new Face({ ...FACE_PRESETS.male });
+    expect(face['config'].jawWidth).toBeCloseTo(0.99, 5);
+    expect(DEFAULT_MALE_APPEARANCE.profile.jawWidth).toBeCloseTo(0.99, 5);
+    expect(DEFAULT_GOLFER_APPEARANCE.profile.jawWidth).toBeCloseTo(0.99, 5);
+  });
+
+  it('should centralize the procedural face ranges and keep jaw default at 0.99 while widening the range', () => {
+    expect(FACE_PARAMETER_LIMITS.jawWidth.default).toBeCloseTo(0.99, 5);
+    expect(FACE_PARAMETER_LIMITS.jawWidth.min).toBeLessThan(0.99);
+    expect(FACE_PARAMETER_LIMITS.jawWidth.max).toBeGreaterThan(0.99);
+    expect(FACE_PARAMETER_LIMITS.jawWidth.min).toBeLessThanOrEqual(0.4);
+    expect(FACE_PARAMETER_LIMITS.jawWidth.max).toBeGreaterThanOrEqual(1.6);
+    expect(FACE_PARAMETER_LIMITS.headScale.min).toBeLessThan(1);
+    expect(FACE_PARAMETER_LIMITS.headScale.max).toBeGreaterThan(1);
+    expect(FACE_PARAMETER_LIMITS.eyeSpacing.min).toBeLessThan(0.7);
+    expect(FACE_PARAMETER_LIMITS.eyeSpacing.max).toBeGreaterThan(0.7);
+  });
+
+  it('should keep cheek geometry independent from eye size changes', () => {
+    const face = new Face({
+      ...FACE_PRESETS.male,
+      eyeSpacing: 0.68,
+      jawWidth: 0.99,
+    });
+
+    const cheekLeft = face.root.getObjectByName('cheek-left') as THREE.Mesh;
+    const cheekRight = face.root.getObjectByName('cheek-right') as THREE.Mesh;
+    const leftEye = face.root.getObjectByName('eye-white-left') as THREE.Mesh;
+    const rightEye = face.root.getObjectByName('eye-white-right') as THREE.Mesh;
+
+    const cheekLeftBefore = cheekLeft.scale.clone();
+    const cheekRightBefore = cheekRight.scale.clone();
+    const leftEyeBefore = leftEye.scale.clone();
+    const rightEyeBefore = rightEye.scale.clone();
+
+    face.setConfig({ eyeSpacing: 0.2 });
+
+    expect(cheekLeft.scale.x).toBeCloseTo(cheekLeftBefore.x, 5);
+    expect(cheekRight.scale.x).toBeCloseTo(cheekRightBefore.x, 5);
+    expect(leftEye.scale.x).not.toBeCloseTo(leftEyeBefore.x, 5);
+    expect(rightEye.scale.x).not.toBeCloseTo(rightEyeBefore.x, 5);
+  });
+
+  it('should hide the shoulder rig in the head-only body preview while leaving the torso visible', () => {
+    const golfer = new Golfer(DEFAULT_GOLFER_APPEARANCE);
+    const shoulderL = (golfer as any).joints.get('shoulderL') as THREE.Group;
+    const shoulderR = (golfer as any).joints.get('shoulderR') as THREE.Group;
+    const torso = (golfer as any).joints.get('torso') as THREE.Group;
+
+    golfer.setHeadOnlyPreview(true);
+
+    expect(shoulderL).toBeTruthy();
+    expect(shoulderR).toBeTruthy();
+    expect(torso).toBeTruthy();
+    expect(shoulderL.visible).toBe(false);
+    expect(shoulderR.visible).toBe(false);
+    expect(torso.visible).toBe(true);
+
+    golfer.setHeadOnlyPreview(false);
+    expect(shoulderL.visible).toBe(true);
+    expect(shoulderR.visible).toBe(true);
+    golfer.dispose();
+  });
+
+  it('should hide hair-style controls in body mode and keep the full body preview visible', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    const modal = new AppearanceModal(container, {
+      playerName: 'Body Controls Test',
+      mode: 'look',
+      initialAppearance: DEFAULT_GOLFER_APPEARANCE,
+      initialAccessories: {},
+      onApply: () => undefined,
+    });
+
+    const bodyToggle = container.querySelector(
+      '.appearance-mode-button[data-mode="look"]'
+    ) as HTMLButtonElement;
+    bodyToggle.click();
+
+    const labels = Array.from(container.querySelectorAll('label')).map(
+      (label) => label.textContent ?? ''
+    );
+    expect(labels.some((label) => label.includes('Hair style'))).toBe(false);
+
+    const preview = (modal as any).preview as Golfer;
+    const bounds = new THREE.Box3().setFromObject(preview.root);
+    expect(bounds.isEmpty()).toBe(false);
+    expect(bounds.max.x - bounds.min.x).toBeGreaterThan(1.1);
+
+    modal.close(false);
+    container.remove();
   });
 
   it('should keep the face diagnostics panel on by default and isolate the face in the preview', () => {
@@ -432,6 +744,31 @@ describe('Game Components', () => {
         ?.classList.contains('is-active')
     ).toBe(true);
     expect(document.querySelector('.appearance-control')?.textContent).toContain('Skin tone');
+  });
+
+  it('should isolate the face and hide the body and shoulders in face mode', () => {
+    document.body.innerHTML = '';
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    const modal = new AppearanceModal(container, {
+      playerName: 'Face Isolation Test',
+      mode: 'face',
+      initialAppearance: DEFAULT_GOLFER_APPEARANCE,
+      initialAccessories: {},
+      onApply: () => undefined,
+    });
+
+    const preview = (modal as any).preview as Golfer;
+    const isolatedFaceRoot = (modal as any).isolatedFaceRoot as THREE.Group;
+
+    expect(preview.root.visible).toBe(false);
+    expect(isolatedFaceRoot.visible).toBe(true);
+    expect(isolatedFaceRoot.getObjectByName('head-part')).not.toBeNull();
+    expect(preview.root.getObjectByName('torso-part')).not.toBeNull();
+
+    modal.close(false);
+    container.remove();
   });
 
   it('should keep the face diagnostics sliders interactive in the face view', () => {

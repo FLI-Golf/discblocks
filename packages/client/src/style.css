@@ -582,12 +582,23 @@ body {
   grid-template-columns: minmax(260px, 320px) minmax(280px, 460px);
   gap: 18px;
   width: min(90vw, 820px);
+  min-height: 600px;
+  max-height: 82vh;
   padding: 18px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 18px;
   background: rgba(11, 23, 38, 0.96);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.48);
   color: #edf4ff;
+}
+
+.appearance-modal > .appearance-preview-host {
+  align-self: start;
+  min-height: 360px;
+}
+
+.appearance-modal > .appearance-controls {
+  align-self: stretch;
 }
 
 .appearance-modal-header {
@@ -624,14 +635,16 @@ body {
   font-size: clamp(1.1rem, 2vw, 1.6rem);
 }
 
-.appearance-header-preset-group {
+.appearance-header-preset-group,
+.appearance-header-orientation-group {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
 
-.appearance-header-preset {
+.appearance-header-preset,
+.appearance-header-orientation {
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.03);
   color: #edf4ff;
@@ -647,7 +660,8 @@ body {
     color 0.2s ease;
 }
 
-.appearance-header-preset.is-selected {
+.appearance-header-preset.is-selected,
+.appearance-header-orientation.is-selected {
   background: rgba(255, 213, 74, 0.18);
   border-color: rgba(255, 213, 74, 0.6);
   color: #ffd54a;
@@ -699,11 +713,46 @@ body {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.02));
 }
 
+.face-debug-header {
+  display: flex;
+  align-items: center;
+}
+
+.face-debug-toggle {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  color: #edf4ff;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.face-debug-chevron {
+  display: inline-block;
+  font-size: 12px;
+  color: #ffd54a;
+  min-width: 12px;
+}
+
 .face-debug-title {
   font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: #9fb3cc;
+}
+
+.face-debug-content {
+  display: grid;
+  gap: 8px;
+}
+
+.face-debug-panel.is-collapsed .face-debug-content {
+  display: none;
 }
 
 .face-debug-control {
@@ -737,7 +786,7 @@ body {
 
 .appearance-preview-host {
   display: block;
-  min-height: 240px;
+  min-height: 360px;
   border-radius: 14px;
   background: linear-gradient(180deg, rgba(24, 34, 52, 0.95), rgba(12, 19, 30, 0.9));
   border: 1px solid rgba(255, 255, 255, 0.08);

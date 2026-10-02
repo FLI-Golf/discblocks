@@ -67,8 +67,7 @@ function createPlayerAppearance(config: {
   face?: Partial<CharacterAppearance['face']>;
 }): CharacterAppearance {
   return buildCharacterAppearance({
-    avatarModelId:
-      config.avatarModelId ?? (config.bodyProfile === 'athleticFemale' ? 'female' : 'male'),
+    avatarModelId: config.avatarModelId ?? 'none',
     bodyProfile: config.bodyProfile,
     profile: BODY_PROFILES[config.bodyProfile],
     hairStyle: config.hairStyle,
