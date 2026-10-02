@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
+  <!-- Blue sky gradient background -->
+  <defs>
+    <linearGradient id="skyGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#87CEEB"/>
+      <stop offset="50%" style="stop-color:#5BA3D9"/>
+      <stop offset="100%" style="stop-color:#2F91F6"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="200" height="200" fill="url(#skyGradient)"/>
+  
+  <!-- Subtle cloud hints -->
+  <ellipse cx="30" cy="35" rx="25" ry="12" fill="white" opacity="0.3"/>
+  <ellipse cx="170" cy="50" rx="20" ry="10" fill="white" opacity="0.25"/>
+  <ellipse cx="160" cy="25" rx="15" ry="8" fill="white" opacity="0.2"/>
+  
+  <!-- Hair (back layer) -->
+  <ellipse cx="100" cy="95" rx="55" ry="50" fill="#4A3728"/>
+  
+  <!-- Hair flowing down -->
+  <path d="M50 85 Q45 120 55 160 Q60 180 70 200" fill="#4A3728"/>
+  <path d="M150 85 Q155 120 145 160 Q140 180 130 200" fill="#4A3728"/>
+  
+  <!-- Neck -->
+  <rect x="85" y="155" width="30" height="45" fill="#F5D0C5"/>
+  
+  <!-- Shoulders hint -->
+  <ellipse cx="100" cy="195" rx="50" ry="20" fill="#DC2626"/>
+  
+  <!-- Face -->
+  <ellipse cx="100" cy="110" rx="42" ry="48" fill="#F5D0C5"/>
+  
+  <!-- Hair (front layer - bangs/framing) -->
+  <path d="M58 90 Q65 70 85 65 Q100 62 115 65 Q135 70 142 90 Q130 80 100 78 Q70 80 58 90" fill="#4A3728"/>
+  
+  <!-- Eyebrows -->
+  <path d="M75 95 Q82 92 90 94" stroke="#3D2E1F" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <path d="M110 94 Q118 92 125 95" stroke="#3D2E1F" stroke-width="2" fill="none" stroke-linecap="round"/>
+  
+  <!-- Eyes -->
+  <ellipse cx="82" cy="105" rx="8" ry="5" fill="white"/>
+  <ellipse cx="118" cy="105" rx="8" ry="5" fill="white"/>
+  <circle cx="82" cy="105" r="4" fill="#5D4E37"/>
+  <circle cx="118" cy="105" r="4" fill="#5D4E37"/>
+  <circle cx="83" cy="104" r="1.5" fill="white"/>
+  <circle cx="119" cy="104" r="1.5" fill="white"/>
+  
+  <!-- Eyelashes hint -->
+  <path d="M74 102 Q78 100 82 102" stroke="#3D2E1F" stroke-width="1" fill="none"/>
+  <path d="M118 102 Q122 100 126 102" stroke="#3D2E1F" stroke-width="1" fill="none"/>
+  
+  <!-- Nose -->
+  <path d="M100 108 Q102 118 100 125 Q97 127 100 128 Q103 127 100 125" stroke="#E5C0B5" stroke-width="2" fill="none" stroke-linecap="round"/>
+  
+  <!-- Smile -->
+  <path d="M85 138 Q100 148 115 138" stroke="#C4756E" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  
+  <!-- Lips color -->
+  <ellipse cx="100" cy="140" rx="12" ry="5" fill="#D4847D"/>
+  
+  <!-- Cheek blush -->
+  <ellipse cx="68" cy="125" rx="8" ry="5" fill="#F0B0A0" opacity="0.4"/>
+  <ellipse cx="132" cy="125" rx="8" ry="5" fill="#F0B0A0" opacity="0.4"/>
+</svg>

@@ -15,7 +15,11 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["packages/client/src/*"]
+    }
   },
   "include": ["packages/*/src/**/*"],
   "exclude": ["node_modules", "dist"]
