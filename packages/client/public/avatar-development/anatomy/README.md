@@ -42,6 +42,45 @@ Pelvis
                     └── RightFoot
 ```
 
+## SEMANTIC anatomy model
+
+This is the semantic anatomical hierarchy used by pose data. The exact Three.js
+hierarchy may differ — do NOT restructure the rig merely to match this diagram.
+
+```
+Head
+    ↓
+Torso
+    ↓
+Pelvis / Hips
+   ↙       ↘
+Left Hip   Right Hip
+   ↓          ↓
+Left Knee  Right Knee
+   ↓          ↓
+Left Foot  Right Foot
+```
+
+Upper body:
+
+```
+Torso
+   ↙              ↘
+Left Shoulder    Right Shoulder
+   ↓                 ↓
+Left Elbow       Right Elbow
+   ↓                 ↓
+Left Wrist       Right Wrist
+   ↓                 ↓
+Left Hand        Right Hand
+```
+
+The full disc-golf kinetic chain the rig must represent:
+
+```
+feet → legs → hips/pelvis → torso → shoulder → elbow → wrist → hand → disc
+```
+
 ## CANONICAL LOCAL COORDINATE SYSTEM
 
 Inspected from the current golfer/face (face is the authority for forward):

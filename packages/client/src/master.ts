@@ -196,7 +196,6 @@ foot.insertBefore(saveBtn, savedList);
 let expanded: string | null = null;
 const featureLeft = document.getElementById('feature-left')!;
 const featureRight = document.getElementById('feature-right')!;
-const lowerNav = document.getElementById('lower')!;
 
 // Change Look (appearance) editor in the RIGHT menu — edits the same golfer,
 // no separate preview.
@@ -304,6 +303,19 @@ function comingSoon(c: HTMLElement) {
   c.appendChild(d);
 }
 
+// A labeled row for a reserved-but-not-yet-wired semantic control.
+function comingSoonRow(label: string): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'row';
+  const span = document.createElement('span');
+  span.textContent = label;
+  const soon = document.createElement('span');
+  soon.className = 'soon';
+  soon.textContent = 'Coming Soon';
+  row.append(span, soon);
+  return row;
+}
+
 // Upper-body / head features -> LEFT menu
 makeSection(featureLeft, 'headPose', 'Head (Pose)', (c) => {
   c.appendChild(
@@ -325,6 +337,30 @@ makeSection(featureLeft, 'headPose', 'Head (Pose)', (c) => {
     )
   );
 });
+// ---- Full anatomical Body Features (permanent organization) ----
+// HEAD
+makeSection(featureLeft, 'head', 'Head', (c) => {
+  c.appendChild(
+    slider(
+      'Turn Left / Right',
+      () => draft.headYaw,
+      (v) => (draft.headYaw = v),
+      -80,
+      80
+    )
+  );
+  c.appendChild(
+    slider(
+      'Look Up / Down',
+      () => draft.headPitch,
+      (v) => (draft.headPitch = v),
+      -50,
+      50
+    )
+  );
+});
+
+// TORSO
 makeSection(featureLeft, 'torso', 'Torso', (c) => {
   const propLabel = document.createElement('div');
   propLabel.className = 'ftitle';
@@ -341,7 +377,7 @@ makeSection(featureLeft, 'torso', 'Torso', (c) => {
   c.appendChild(poseLabel);
   c.appendChild(
     slider(
-      'Coil',
+      'Turn Left / Right',
       () => draft.torsoCoil,
       (v) => (draft.torsoCoil = v),
       -90,
@@ -350,58 +386,68 @@ makeSection(featureLeft, 'torso', 'Torso', (c) => {
   );
   c.appendChild(
     slider(
-      'Lean',
+      'Lean Forward / Back',
       () => draft.torsoLean,
       (v) => (draft.torsoLean = v),
       -45,
       45
     )
   );
+  c.appendChild(comingSoonRow('Lean Left / Right'));
 });
-makeSection(featureLeft, 'leftArm', "Left Arm (golfer's left)", (c) => {
+
+// LEFT ARM
+makeSection(featureLeft, 'leftArm', 'Left Arm', (c) => {
   const hint = document.createElement('div');
   hint.className = 'soon';
   hint.textContent = "Golfer's anatomical left — appears on screen-right in Front view.";
   c.appendChild(hint);
   c.appendChild(
     slider(
-      'Arm Out / In',
+      'Out / In',
       () => draft.lAbduction,
-      (v) => (draft.lAbduction = v)
+      (v) => (draft.lAbduction = v),
+      0,
+      140
     )
   );
+  c.appendChild(comingSoonRow('Forward / Back'));
+  c.appendChild(comingSoonRow('Arm Twist'));
+  c.appendChild(comingSoonRow('Elbow Bend'));
 });
-makeSection(featureLeft, 'rightArm', "Right Arm (golfer's right)", (c) => {
+
+// RIGHT ARM
+makeSection(featureLeft, 'rightArm', 'Right Arm', (c) => {
   const hint = document.createElement('div');
   hint.className = 'soon';
   hint.textContent = "Golfer's anatomical right — appears on screen-left in Front view.";
   c.appendChild(hint);
   c.appendChild(
     slider(
-      'Arm Out / In',
+      'Out / In',
       () => draft.rAbduction,
-      (v) => (draft.rAbduction = v)
+      (v) => (draft.rAbduction = v),
+      0,
+      140
     )
   );
+  c.appendChild(comingSoonRow('Forward / Back'));
+  c.appendChild(comingSoonRow('Arm Twist'));
+  c.appendChild(comingSoonRow('Elbow Bend'));
 });
-makeSection(featureLeft, 'lowerBody', 'Lower Body', (c) => {
-  const propLabel = document.createElement('div');
-  propLabel.className = 'ftitle';
-  propLabel.textContent = 'Proportions';
-  c.appendChild(propLabel);
-  c.appendChild(appearanceSlider('Leg Length', 'legLength', 0.6, 1.5));
-  c.appendChild(appearanceSlider('Thigh Length (Hip to Knee)', 'thighLength', 0.6, 1.6));
-  c.appendChild(appearanceSlider('Leg Taper', 'legTaper', 0.5, 1.5));
-  c.appendChild(appearanceSlider('Hip Width', 'hipWidth', 0.5, 1.5));
-  const poseLabel = document.createElement('div');
-  poseLabel.className = 'ftitle';
-  poseLabel.textContent = 'Pose';
-  poseLabel.style.marginTop = '12px';
-  c.appendChild(poseLabel);
-  c.appendChild(document.createTextNode('Left Leg'));
+
+// HIPS / PELVIS
+makeSection(featureLeft, 'pelvis', 'Hips / Pelvis', (c) => {
+  c.appendChild(comingSoonRow('Turn Left / Right'));
+  c.appendChild(comingSoonRow('Tilt Left / Right'));
+  c.appendChild(comingSoonRow('Forward / Back'));
+});
+
+// LEFT LEG
+makeSection(featureLeft, 'leftLeg', 'Left Leg', (c) => {
   c.appendChild(
     slider(
-      'Step Fwd / Back',
+      'Hip Forward / Back',
       () => draft.lHipFlex,
       (v) => (draft.lHipFlex = v),
       -60,
@@ -410,13 +456,14 @@ makeSection(featureLeft, 'lowerBody', 'Lower Body', (c) => {
   );
   c.appendChild(
     slider(
-      'Leg Out / In',
+      'Hip Out / In',
       () => draft.lHipAbd,
       (v) => (draft.lHipAbd = v),
       0,
       60
     )
   );
+  c.appendChild(comingSoonRow('Hip Rotation'));
   c.appendChild(
     slider(
       'Knee Bend',
@@ -426,13 +473,16 @@ makeSection(featureLeft, 'lowerBody', 'Lower Body', (c) => {
       120
     )
   );
-  const sep = document.createElement('div');
-  sep.style.cssText = 'border-top:1px solid rgba(255,255,255,.08);margin:10px 0;';
-  c.appendChild(sep);
-  c.appendChild(document.createTextNode('Right Leg'));
+  c.appendChild(comingSoonRow('Foot Direction'));
+  c.appendChild(appearanceSlider('Leg Length', 'legLength', 0.6, 1.5));
+  c.appendChild(appearanceSlider('Thigh Length (Hip to Knee)', 'thighLength', 0.6, 1.6));
+});
+
+// RIGHT LEG
+makeSection(featureLeft, 'rightLeg', 'Right Leg', (c) => {
   c.appendChild(
     slider(
-      'Step Fwd / Back',
+      'Hip Forward / Back',
       () => draft.rHipFlex,
       (v) => (draft.rHipFlex = v),
       -60,
@@ -441,13 +491,14 @@ makeSection(featureLeft, 'lowerBody', 'Lower Body', (c) => {
   );
   c.appendChild(
     slider(
-      'Leg Out / In',
+      'Hip Out / In',
       () => draft.rHipAbd,
       (v) => (draft.rHipAbd = v),
       0,
       60
     )
   );
+  c.appendChild(comingSoonRow('Hip Rotation'));
   c.appendChild(
     slider(
       'Knee Bend',
@@ -457,11 +508,14 @@ makeSection(featureLeft, 'lowerBody', 'Lower Body', (c) => {
       120
     )
   );
+  c.appendChild(comingSoonRow('Foot Direction'));
+  c.appendChild(appearanceSlider('Leg Taper', 'legTaper', 0.5, 1.5));
+  c.appendChild(appearanceSlider('Hip Width', 'hipWidth', 0.5, 1.5));
 });
 
-// Hands/Wrists and Disc organizational sections live in the bottom nav.
-makeSection(lowerNav, 'hands', 'Hands / Wrists', (c) => comingSoon(c));
-makeSection(lowerNav, 'disc', 'Disc', (c) => comingSoon(c));
+// HANDS / WRISTS + DISC
+makeSection(featureLeft, 'hands', 'Hands / Wrists', (c) => comingSoon(c));
+makeSection(featureLeft, 'disc', 'Disc', (c) => comingSoon(c));
 
 // ---- Render loop ----
 function tick() {
