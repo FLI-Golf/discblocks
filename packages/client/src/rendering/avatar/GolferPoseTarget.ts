@@ -33,17 +33,35 @@ export class GolferPoseTarget implements PoseTarget {
   }
 
   applyPose(pose: GolferPose): void {
+    // All controls compose from the current baseline rotation (captured each
+    // frame via applyPoseBaseline in the host). We add semantic offsets, never
+    // accumulate.
     if (pose.leftShoulder) {
       this.applyShoulder('shoulderL', 'left', pose.leftShoulder);
     }
     if (pose.rightShoulder) {
       this.applyShoulder('shoulderR', 'right', pose.rightShoulder);
     }
-    if (pose.leftElbow?.flexion !== undefined) {
-      this.setJointRotation('elbowL', [0, 0, pose.leftElbow.flexion * 0.5]);
+    if (pose.leftElbow) {
+      this.applyElbow('elbowL', pose.leftElbow);
     }
-    if (pose.rightElbow?.flexion !== undefined) {
-      this.setJointRotation('elbowR', [0, 0, -(pose.rightElbow.flexion ?? 0) * 0.5]);
+    if (pose.rightElbow) {
+      this.applyElbow('elbowR', pose.rightElbow);
+    }
+    if (pose.head) {
+      this.applyHead(pose.head);
+    }
+    if (pose.leftHip) {
+      this.applyHip('hipL', 'left', pose.leftHip);
+    }
+    if (pose.rightHip) {
+      this.applyHip('hipR', 'right', pose.rightHip);
+    }
+    if (pose.leftKnee) {
+      this.applyKnee('kneeL', pose.leftKnee);
+    }
+    if (pose.rightKnee) {
+      this.applyKnee('kneeR', pose.rightKnee);
     }
     if (pose.torso) {
       this.setJointRotation('torso', [pose.torso.lean ?? 0, pose.torso.rotation ?? 0, 0]);
@@ -78,8 +96,10 @@ export class GolferPoseTarget implements PoseTarget {
     };
   }
 
-  // Anatomical shoulder: abduction swings the arm out/up (jumping-jack) along
-  // the shoulder's local Z axis with mirrored signs (right +=, left -=).
+  // Anatomical shoulder. Local axes (empirically validated on this rig):
+  //   abduction (arm out/in)  -> local Z, mirrored signs (right +=, left -=)
+  //   flexion (arm fwd/back)  -> local X, same sign both sides (forward = -X)
+  //   rotation (twist)        -> local Y, mirrored signs
   private applyShoulder(
     joint: 'shoulderL' | 'shoulderR',
     side: 'left' | 'right',
@@ -94,10 +114,64 @@ export class GolferPoseTarget implements PoseTarget {
     const flexion = pose.flexion ?? 0;
     const twist = pose.rotation ?? 0;
     group.rotation.set(
-      group.rotation.x + flexion,
+      group.rotation.x - flexion,
       group.rotation.y + twist * sign,
       group.rotation.z + abduction * sign
     );
+  }
+
+  // Elbow flexion bends the forearm toward the body. Local Z, same + sign both
+  // sides curls the hand up/in on this rig.
+  private applyElbow(joint: 'elbowL' | 'elbowR', pose: { flexion?: number }): void {
+    const group = this.golfer.getJointGroup(joint);
+    if (!group) {
+      return;
+    }
+    const flexion = pose.flexion ?? 0;
+    group.rotation.set(group.rotation.x, group.rotation.y, group.rotation.z + flexion);
+  }
+
+  // Hip. flexion (step forward/back) -> local X (forward = -X). abduction
+  // (leg out/in) -> local Z, mirrored (right +=, left -=).
+  private applyHip(
+    joint: 'hipL' | 'hipR',
+    side: 'left' | 'right',
+    pose: { flexion?: number; abduction?: number }
+  ): void {
+    const group = this.golfer.getJointGroup(joint);
+    if (!group) {
+      return;
+    }
+    const sign = side === 'right' ? 1 : -1;
+    const flexion = pose.flexion ?? 0;
+    const abduction = pose.abduction ?? 0;
+    group.rotation.set(
+      group.rotation.x - flexion,
+      group.rotation.y,
+      group.rotation.z + abduction * sign
+    );
+  }
+
+  // Knee flexion bends the lower leg back/up. Local X.
+  private applyKnee(joint: 'kneeL' | 'kneeR', pose: { flexion?: number }): void {
+    const group = this.golfer.getJointGroup(joint);
+    if (!group) {
+      return;
+    }
+    const flexion = pose.flexion ?? 0;
+    group.rotation.set(group.rotation.x + flexion, group.rotation.y, group.rotation.z);
+  }
+
+  // Head. yaw -> local Y (+ turns toward golfer's right), pitch -> local X
+  // (- looks up). Rotates the whole head hierarchy; face features follow.
+  private applyHead(pose: { yaw?: number; pitch?: number }): void {
+    const group = this.golfer.getJointGroup('head');
+    if (!group) {
+      return;
+    }
+    const yaw = pose.yaw ?? 0;
+    const pitch = pose.pitch ?? 0;
+    group.rotation.set(group.rotation.x - pitch, group.rotation.y + yaw, group.rotation.z);
   }
 
   private setJointRotation(joint: string, rotation: [number, number, number]): void {

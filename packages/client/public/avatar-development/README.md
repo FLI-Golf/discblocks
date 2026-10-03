@@ -77,6 +77,31 @@ interpolate between stages to animate.
 > PoseLibrary only when we intentionally save a meaningful golfer position for
 > reuse. Temporary shoulder-abduction test angles are never registered as poses.
 
+## Dev pages
+
+- **`/master.html` — MASTER AVATAR.** The permanent authoring workspace: large
+  full-body preview + Body Features inspector. This is where we author poses.
+- **`/shoulder-test.html` — SHOULDER DIAGNOSTIC.** Isolated page that only
+  proves shoulder mechanics. Not where disc-golf poses are authored.
+
+> DIAGNOSTIC PAGES PROVE THE RIG. MASTER AUTHORS POSES. POSELIBRARY STORES
+> SEMANTIC POSES. ACTIONS SEQUENCE POSES. REFERENCE IMAGES GUIDE AUTHORING.
+
+## Development roadmap
+
+1. Shoulder Abduction (Arm Out / In)
+2. Shoulder Flexion (Arm Forward / Back)
+3. Elbow Flexion (Elbow Bend)
+4. Head (Yaw + Pitch)
+5. Torso (Rotation + Lean)
+6. Hips
+7. Legs (Hip + Knee + Ankle + Foot)
+8. Wrists / Hands
+9. Disc Orientation / Attachment
+10. Pose Saving / PoseLibrary
+11. Create disc-golf poses from reference images
+12. Sequence poses into Actions
+
 ## Sample Copilot Prompt
 
 > "Inspect the current Golfer rig and scaffold a `PoseLibrary` under

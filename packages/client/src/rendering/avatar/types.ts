@@ -41,6 +41,20 @@ export interface TorsoPose {
   readonly twist?: number;
 }
 
+export interface HeadPose {
+  readonly yaw?: number; // face left/right (radians)
+  readonly pitch?: number; // look up/down (radians)
+}
+
+export interface HipPose {
+  readonly flexion?: number; // step forward/back (radians)
+  readonly abduction?: number; // leg out/in (radians)
+}
+
+export interface KneePose {
+  readonly flexion?: number; // bend (radians)
+}
+
 export type PoseId = string;
 export type ActionId = string;
 
@@ -48,10 +62,15 @@ export interface GolferPose {
   readonly id: PoseId;
   readonly name: string;
   readonly torso?: TorsoPose;
+  readonly head?: HeadPose;
   readonly leftShoulder?: ShoulderPose;
   readonly rightShoulder?: ShoulderPose;
   readonly leftElbow?: ElbowPose;
   readonly rightElbow?: ElbowPose;
+  readonly leftHip?: HipPose;
+  readonly rightHip?: HipPose;
+  readonly leftKnee?: KneePose;
+  readonly rightKnee?: KneePose;
 }
 
 export interface ActionStage {

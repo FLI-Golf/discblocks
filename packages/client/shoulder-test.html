@@ -6,8 +6,14 @@
     <title>Shoulder Adapter Test</title>
     <style>
       html, body { margin: 0; height: 100%; background: #0b1726; color: #edf4ff; font-family: sans-serif; }
-      #wrap { display: grid; grid-template-columns: 1fr 340px; height: 100vh; }
-      #canvas { width: 100%; height: 100%; display: block; }
+      #wrap { display: grid; grid-template-columns: 320px 1fr 340px; height: 100vh; }
+      #left { background: rgba(10,17,28,.96); border-right: 1px solid rgba(255,255,255,.12); display: flex; flex-direction: column; overflow: hidden; }
+      #left-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid rgba(255,255,255,.08); }
+      #left-head strong { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: #9fb3cc; }
+      #left-body { overflow-y: auto; flex: 1; padding: 12px; }
+      #left-body button { width: 100%; padding: 9px; margin: 5px 0; border-radius: 8px; border: 1px solid rgba(255,213,74,.3); background: transparent; color: #edf4ff; cursor: pointer; font-size: 13px; text-align: left; }
+      #left-body button:hover { background: rgba(255,213,74,.08); }
+      #canvas { width: 100%; height: 100%; display: block; min-width: 0; min-height: 0; }
       #panel { padding: 16px; overflow-y: auto; background: rgba(10,17,28,.96); border-left: 1px solid rgba(255,255,255,.12); }
       h1 { font-size: 15px; letter-spacing: .08em; text-transform: uppercase; color: #9fb3cc; }
       .row { margin: 14px 0; }
@@ -17,8 +23,10 @@
       .views { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
       .views button { flex: 1; padding: 6px 4px; border-radius: 8px; border: 1px solid rgba(255,213,74,.28); background: rgba(10,17,28,.96); color: #edf4ff; cursor: pointer; font-size: 12px; }
       .views button.is-active { background: rgba(255,213,74,.16); color: #ffd54a; }
-      #reset { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid rgba(255,213,74,.4); background: transparent; color: #ffd54a; cursor: pointer; }
-      #debug { margin-top: 16px; font-size: 11px; font-family: monospace; white-space: pre; background: rgba(0,0,0,.3); padding: 10px; border-radius: 8px; color: #9fb3cc; }
+      #reset { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid rgba(255,213,74,.4); background: transparent; color: #ffd54a; cursor: pointer; margin-top: 14px; }
+      .grp { font-size: 12px; font-weight: 700; letter-spacing: .06em; color: #5eead4; margin: 16px 0 4px; }
+      #debug, #camdebug { margin-top: 10px; font-size: 11px; font-family: monospace; white-space: pre; background: rgba(0,0,0,.3); padding: 10px; border-radius: 8px; color: #9fb3cc; }
+      #camdebug { color: #5eead4; }
       .sect { margin-top: 18px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: #9fb3cc; border-top: 1px solid rgba(255,255,255,.08); padding-top: 12px; }
       #docs-overlay { position: fixed; inset: 0; background: rgba(3,8,16,.8); z-index: 50; display: flex; align-items: center; justify-content: center; }
       #docs-overlay[hidden] { display: none; }
@@ -44,22 +52,21 @@
   </head>
   <body>
     <div id="wrap">
+      <div id="left">
+        <div id="left-head"><strong>Tools</strong></div>
+        <div id="left-body"></div>
+      </div>
       <canvas id="canvas"></canvas>
       <div id="panel">
-        <h1>Shoulder Adapter Test</h1>
+        <h1>Avatar Rig Test</h1>
+        <a href="/master.html" style="display:block;text-align:center;padding:8px;border-radius:8px;border:1px solid rgba(94,234,212,.5);color:#5eead4;text-decoration:none;margin-bottom:8px;">Master Avatar →</a>
         <button id="avatar-dev" style="width:100%;padding:8px;border-radius:8px;border:1px solid rgba(94,234,212,.5);background:rgba(94,234,212,.12);color:#5eead4;cursor:pointer;margin-bottom:8px;">Avatar Development</button>
         <div class="sect">Camera</div>
         <div class="views" id="views"></div>
-        <div class="sect">Abduction (degrees)</div>
-        <div class="row">
-          <label>Left Shoulder <output id="lv">0°</output></label>
-          <input id="l" type="range" min="0" max="140" step="1" value="0" />
-        </div>
-        <div class="row">
-          <label>Right Shoulder <output id="rv">0°</output></label>
-          <input id="r" type="range" min="0" max="140" step="1" value="0" />
-        </div>
+        <div id="controls"></div>
         <button id="reset">Reset</button>
+        <div class="sect">Camera</div>
+        <div id="camdebug"></div>
         <div class="sect">Debug</div>
         <div id="debug"></div>
       </div>
