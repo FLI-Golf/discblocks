@@ -42,6 +42,11 @@ Conceptual documentation only — the actual implementation may use stronger
 types. Pose data is **semantic anatomy** (`leftShoulder.abduction`), never
 mesh-specific (`mesh_17.rotation.z`), so poses survive geometry changes.
 
+> **POSE DATA IS STORED FROM THE GOLFER'S PERSPECTIVE.** `leftShoulder` /
+> `rightElbow` / etc. always mean the golfer's anatomical left/right, regardless
+> of which camera view is showing. Camera orientation never changes anatomical
+> left/right.
+
 ## Pose library concept
 
 Examples of pose IDs we intend to author:

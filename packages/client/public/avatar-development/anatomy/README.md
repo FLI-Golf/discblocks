@@ -60,6 +60,23 @@ Inspected from the current golfer/face (face is the authority for forward):
 > normally views the golfer from behind. Anatomical forward is a golfer-local
 > property, always +Z, regardless of world rotation.
 
+## Anatomical left/right are camera-independent
+
+> **CAMERA ORIENTATION NEVER CHANGES ANATOMICAL LEFT/RIGHT.**
+> **POSE DATA IS STORED FROM THE GOLFER'S PERSPECTIVE.**
+
+`left` = golfer's anatomical left. `right` = golfer's anatomical right. This is
+permanent and applies to shoulders, elbows, wrists, hands, hips, knees, ankles,
+and feet.
+
+When viewing the golfer from the **front**, the golfer's anatomical LEFT appears
+on the viewer's RIGHT, and the golfer's anatomical RIGHT appears on the viewer's
+LEFT. This is expected — the camera is only an observer and must never affect
+semantic joint identity. Do NOT swap labels or pose data to compensate.
+
+Validated by the rig test: `leftShoulder.abduction` moves the golfer's
+anatomical-left arm (hand x `0.09 → -1.48`, toward golfer's left = −X world).
+
 ## Sample Copilot Prompt
 
 > "Validate the canonical golfer-local axes using the face as the forward

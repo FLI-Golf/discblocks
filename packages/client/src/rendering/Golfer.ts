@@ -103,7 +103,9 @@ export interface BodyProfile {
   hipWidth: number;
   armThickness: number;
   armRaise: number;
+  armLength: number;
   legLength: number;
+  thighLength: number;
   legTaper: number;
   headScale: number;
   jawWidth: number;
@@ -553,6 +555,8 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     hipWidth: 0.82,
     armThickness: 1.18,
     armRaise: 0,
+    armLength: 1,
+    thighLength: 1,
     legLength: 1.08,
     legTaper: 1.14,
     headScale: 1.08,
@@ -569,6 +573,8 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     hipWidth: 1.24,
     armThickness: 0.9,
     armRaise: 0,
+    armLength: 1,
+    thighLength: 1,
     legLength: 0.98,
     legTaper: 0.9,
     headScale: 0.96,
@@ -585,6 +591,8 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     hipWidth: 0.8,
     armThickness: 0.82,
     armRaise: 0,
+    armLength: 1,
+    thighLength: 1,
     legLength: 0.86,
     legTaper: 0.78,
     headScale: 0.88,
@@ -2829,7 +2837,9 @@ export class Golfer {
       const kneeName: JointName = isRight ? 'kneeR' : 'kneeL';
 
       const hip = this.joint(hipName, hips, new THREE.Vector3(side * 0.11, -0.12, 0));
-      hip.add(limb(0.34, 0.09, this.appearance.skinTone));
+      const thigh = limb(0.34, 0.09, this.appearance.skinTone);
+      thigh.name = isRight ? 'thigh-right' : 'thigh-left';
+      hip.add(thigh);
 
       const knee = this.joint(kneeName, hip, new THREE.Vector3(0, -0.5, 0));
       const calf = limb(0.32, 0.08, this.appearance.skinTone);
@@ -2961,6 +2971,16 @@ export class Golfer {
       shoulderR.scale.set(profile.shoulderWidth, 1, 1);
     }
 
+    // Arm length: scale the whole arm chain's Y (elbow offset + segments) so both
+    // arms lengthen/shorten together.
+    const armLength = profile.armLength ?? 1;
+    if (shoulderL) {
+      shoulderL.scale.set(profile.shoulderWidth, armLength, 1);
+    }
+    if (shoulderR) {
+      shoulderR.scale.set(profile.shoulderWidth, armLength, 1);
+    }
+
     // Arm thickness: scale arm meshes radially (X/Z), preserving length (Y).
     const armThickness = profile.armThickness ?? 1;
     [
@@ -2990,6 +3010,15 @@ export class Golfer {
     if (hipR) {
       hipR.scale.set(profile.hipWidth, profile.legLength, 1);
     }
+
+    // Thigh length: scale the thigh mesh (hip -> knee segment) Y on both legs.
+    const thighLength = profile.thighLength ?? 1;
+    ['thigh-left', 'thigh-right'].forEach((name) => {
+      const mesh = this.root.getObjectByName(name);
+      if (mesh) {
+        mesh.scale.set(1, thighLength, 1);
+      }
+    });
 
     this.face?.setConfig({
       skinTone: this.appearance.skinTone,
