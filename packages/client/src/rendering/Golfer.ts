@@ -102,6 +102,7 @@ export interface BodyProfile {
   torsoTaper: number;
   hipWidth: number;
   armThickness: number;
+  armRaise: number;
   legLength: number;
   legTaper: number;
   headScale: number;
@@ -532,10 +533,10 @@ const STAND_POSE: Pose = {
     hips: [0, 0, 0],
     torso: [0.08, 0, 0],
     head: [0, -0.12, 0],
-    shoulderR: [0.02, 0, -0.3],
-    elbowR: [0.01, 0, -0.16],
-    shoulderL: [0.02, 0, 0.3],
-    elbowL: [0.01, 0, 0.16],
+    shoulderR: [0.02, 0, -0.34],
+    elbowR: [0.01, 0, -0.12],
+    shoulderL: [0.02, 0, 0.34],
+    elbowL: [0.01, 0, 0.12],
     hipR: [0.06, 0, 0.08],
     kneeR: [0.12, 0, 0],
     hipL: [0.04, 0, -0.08],
@@ -551,6 +552,7 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     torsoTaper: 1.12,
     hipWidth: 0.82,
     armThickness: 1.18,
+    armRaise: 0,
     legLength: 1.08,
     legTaper: 1.14,
     headScale: 1.08,
@@ -566,6 +568,7 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     torsoTaper: 0.74,
     hipWidth: 1.24,
     armThickness: 0.9,
+    armRaise: 0,
     legLength: 0.98,
     legTaper: 0.9,
     headScale: 0.96,
@@ -581,6 +584,7 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     torsoTaper: 0.68,
     hipWidth: 0.8,
     armThickness: 0.82,
+    armRaise: 0,
     legLength: 0.86,
     legTaper: 0.78,
     headScale: 0.88,
@@ -2774,36 +2778,47 @@ export class Golfer {
       // Shoulder pivot at the anatomical shoulder line: upper corner of the
       // torso (torso local top y=0.62, half-width ~0.19). Pivot sits AT torso
       // top, slightly inside the silhouette so the arm reads as attached.
-      const shoulder = this.joint(shoulderName, torso, new THREE.Vector3(side * 0.2, 0.6, 0));
-      // Sleeve cap wraps AROUND the pivot (short cap, not a drooping rib-cover).
-      const sleeve = limb(0.16, 0.075, this.appearance.shirtColor);
-      sleeve.material = createJerseyMaterial(this.appearance);
-      sleeve.position.set(side * 0.01, 0.03, 0);
+      const shoulder = this.joint(shoulderName, torso, new THREE.Vector3(side * 0.32, 0.6, 0));
+      // Sleeve = compact cap AT the shoulder pivot (bridges torso -> upper arm),
+      // not a long capsule drooping down the arm.
+      const sleeve = new THREE.Mesh(
+        new THREE.SphereGeometry(0.1, 14, 12),
+        createJerseyMaterial(this.appearance)
+      );
+      sleeve.scale.set(1.1, 0.8, 1.0);
+      sleeve.position.set(side * 0.02, -0.02, 0);
+      sleeve.castShadow = true;
       shoulder.add(sleeve);
 
-      // Upper arm originates from BELOW the shoulder pivot, hanging down.
+      // Upper arm spans SHOULDER -> ELBOW exactly (top at pivot, bottom at elbow).
       const upperArm = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.062, 0.2, 6, 12),
+        new THREE.CapsuleGeometry(0.082, 0.28, 6, 12),
         new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.78 })
       );
-      upperArm.geometry.translate(0, -0.16, 0);
+      upperArm.name = isRight ? 'upper-arm-right' : 'upper-arm-left';
+      upperArm.geometry.translate(0, -0.22, 0);
+      upperArm.castShadow = true;
       shoulder.add(upperArm);
 
-      const elbow = this.joint(elbowName, shoulder, new THREE.Vector3(0, -0.4, 0));
-      const forearm = limb(0.26, 0.06, this.appearance.skinTone);
+      const elbow = this.joint(elbowName, shoulder, new THREE.Vector3(0, -0.44, 0));
+      // Forearm spans ELBOW -> WRIST exactly.
+      const forearm = limb(0.3, 0.072, this.appearance.skinTone);
+      forearm.name = isRight ? 'forearm-right' : 'forearm-left';
       elbow.add(forearm);
 
+      // Hand at the wrist (end of forearm).
       const hand = new THREE.Mesh(
-        new THREE.SphereGeometry(0.072, 10, 8),
+        new THREE.SphereGeometry(0.082, 10, 8),
         new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.75 })
       );
+      hand.name = isRight ? 'hand-right-mesh' : 'hand-left-mesh';
       hand.scale.set(0.9, 1.15, 0.7);
-      hand.position.y = -0.4;
+      hand.position.y = -0.46;
       hand.castShadow = true;
       elbow.add(hand);
 
       if (isRight) {
-        this.hand.position.set(0, -0.38, 0);
+        this.hand.position.set(0, -0.44, 0);
         elbow.add(this.hand);
         this.attachPoints.set('rightHand', this.hand);
       } else {
@@ -2858,31 +2873,10 @@ export class Golfer {
     this.disc.rotation.set(Math.PI / 2, 0, 0);
     this.disc.scale.setScalar(0.5);
     this.disc.position.set(0, -0.05, 0.06);
+    this.disc.visible = false; // hidden during arm-chain calibration
     this.hand.add(this.disc);
 
     if (import.meta.env.DEV) {
-      // Dev-only canonical-forward helper (+Z). Rotates with Golfer.root.
-      const forwardHelper = new THREE.ArrowHelper(
-        new THREE.Vector3(0, 0, 1),
-        new THREE.Vector3(0, 1.0, 0),
-        0.7,
-        0x22ccff,
-        0.16,
-        0.1
-      );
-      forwardHelper.name = 'forward-axis-helper';
-      this.root.add(forwardHelper);
-
-      // Dev-only shoulder/elbow pivot markers.
-      (['shoulderL', 'shoulderR', 'elbowL', 'elbowR'] as JointName[]).forEach((jn) => {
-        const joint = this.joints.get(jn);
-        if (joint) {
-          const marker = new THREE.AxesHelper(0.14);
-          marker.name = `pivot-marker-${jn}`;
-          joint.add(marker);
-        }
-      });
-
       this.logArmRigDebug();
     }
   }
@@ -2966,6 +2960,27 @@ export class Golfer {
     if (shoulderR) {
       shoulderR.scale.set(profile.shoulderWidth, 1, 1);
     }
+
+    // Arm thickness: scale arm meshes radially (X/Z), preserving length (Y).
+    const armThickness = profile.armThickness ?? 1;
+    [
+      'upper-arm-left',
+      'upper-arm-right',
+      'forearm-left',
+      'forearm-right',
+      'hand-left-mesh',
+      'hand-right-mesh',
+    ].forEach((name) => {
+      const mesh = this.root.getObjectByName(name);
+      if (mesh) {
+        const base = name.startsWith('hand') ? new THREE.Vector3(0.9, 1.15, 0.7) : undefined;
+        if (base) {
+          mesh.scale.set(base.x * armThickness, base.y, base.z * armThickness);
+        } else {
+          mesh.scale.set(armThickness, 1, armThickness);
+        }
+      }
+    });
 
     const hipL = this.joints.get('hipL');
     const hipR = this.joints.get('hipR');
@@ -3278,6 +3293,9 @@ export class Golfer {
     }
 
     this.applyProfileToRig();
+    // Re-apply the neutral pose so appearance-driven pose params (e.g. armRaise)
+    // take effect immediately in the Change Look preview without needing update().
+    this.applyPose(STAND_POSE, STAND_POSE, 0);
     this.refreshAppearance();
   }
 
@@ -3317,6 +3335,19 @@ export class Golfer {
 
   setVisible(visible: boolean) {
     this.root.visible = visible;
+  }
+
+  // Read-only access to the joint map for the avatar PoseTarget adapter.
+  // Additive accessor; does not change any rig/animation behavior.
+  getJointGroup(name: JointName): THREE.Group | undefined {
+    return this.joints.get(name);
+  }
+
+  // Reset all joints to the neutral STAND_POSE baseline. Used by the dev
+  // shoulder-test page to re-apply a clean baseline each frame before applying
+  // semantic pose data. Additive; does not change existing behavior.
+  applyPoseBaseline() {
+    this.applyPose(STAND_POSE, STAND_POSE, 0);
   }
 
   setHeading(yaw: number) {
@@ -3554,6 +3585,28 @@ export class Golfer {
         THREE.MathUtils.lerp(a[1], b[1], t),
         THREE.MathUtils.lerp(a[2], b[2], t)
       );
+    }
+
+    // Arm raise (jumping-jack lateral abduction). Composed AFTER the pose lerp
+    // so it adds to the neutral/throw shoulder rotation.
+    const armRaise = Math.min(100, Math.max(0, this.appearance.profile?.armRaise ?? 0)) / 100;
+    if (armRaise > 0) {
+      this.setShoulderAbduction(armRaise * (Math.PI / 2) * 1.4); // 0 -> ~126deg extra
+    }
+  }
+
+  // Anatomical shoulder abduction (jumping-jack): rotate each arm in the
+  // shoulder's local Z axis to move the arm OUT away from the torso and UP.
+  // Correct mirrored signs (verified by T-pose diagnostic): right += angle,
+  // left -= angle. Keeps the arm in the body's shoulder plane (no backward sweep).
+  private setShoulderAbduction(angle: number) {
+    const shoulderR = this.joints.get('shoulderR');
+    const shoulderL = this.joints.get('shoulderL');
+    if (shoulderR) {
+      shoulderR.rotation.z += angle;
+    }
+    if (shoulderL) {
+      shoulderL.rotation.z -= angle;
     }
   }
 

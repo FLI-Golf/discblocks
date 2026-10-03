@@ -41,6 +41,7 @@ type MacroSliderKey =
   | 'torsoTaper'
   | 'hipWidth'
   | 'armThickness'
+  | 'armRaise'
   | 'legLength'
   | 'legTaper'
   | 'sleeveLength'
@@ -1009,23 +1010,91 @@ export class AppearanceModal {
         this.colorRow('Skin tone', 'skinTone')
       );
     } else {
+      const bodySection = (
+        id: string,
+        title: string,
+        buildContent: (container: HTMLElement) => void
+      ) => {
+        const section = document.createElement('div');
+        section.className = 'face-section';
+        section.dataset.section = `body-${id}`;
+
+        const header = document.createElement('button');
+        header.type = 'button';
+        header.className = 'face-section-header';
+        header.setAttribute('aria-expanded', 'false');
+        const titleEl = document.createElement('span');
+        titleEl.className = 'face-section-title';
+        titleEl.textContent = title;
+        const chevron = document.createElement('span');
+        chevron.className = 'face-section-chevron';
+        chevron.textContent = '▸';
+        header.append(titleEl, chevron);
+        section.appendChild(header);
+
+        const content = document.createElement('div');
+        content.className = 'face-section-content';
+        content.hidden = true;
+        buildContent(content);
+        section.appendChild(content);
+
+        header.addEventListener('click', () => {
+          const open = content.hidden;
+          // accordion: collapse all other body sections
+          this.controlsWrap
+            .querySelectorAll<HTMLElement>('.face-section[data-section^="body-"]')
+            .forEach((s) => {
+              const c = s.querySelector<HTMLElement>('.face-section-content');
+              const ch = s.querySelector<HTMLElement>('.face-section-chevron');
+              if (c) c.hidden = true;
+              if (ch) ch.textContent = '▸';
+              s.querySelector('.face-section-header')?.setAttribute('aria-expanded', 'false');
+            });
+          content.hidden = !open;
+          chevron.textContent = open ? '▾' : '▸';
+          header.setAttribute('aria-expanded', String(open));
+        });
+        return section;
+      };
+
       panel.append(
-        this.colorRow('Shirt color', 'shirtColor'),
-        this.colorRow('Shorts color', 'shortsColor'),
-        this.colorRow('Accent color', 'accentColor'),
-        this.colorRow('Shoe color', 'shoeColor'),
-        this.sliderRow('Shoulder width', 'shoulderWidth', 0.5, 1.5, 0.01),
-        this.sliderRow('Torso length', 'torsoLength', 0.5, 1.5, 0.01),
-        this.sliderRow('Torso taper', 'torsoTaper', 0.4, 1.4, 0.01),
-        this.sliderRow('Hip width', 'hipWidth', 0.5, 1.5, 0.01),
-        this.sliderRow('Arm thickness', 'armThickness', 0.5, 1.6, 0.01),
-        this.sliderRow('Leg length', 'legLength', 0.6, 1.5, 0.01),
-        this.sliderRow('Leg taper', 'legTaper', 0.5, 1.5, 0.01),
-        this.sliderRow('Sleeve length', 'sleeveLength', 0.4, 1.6, 0.01),
-        this.sliderRow('Collar height', 'collarHeight', 0.4, 1.6, 0.01),
-        this.sliderRow('Shirt fit', 'shirtFit', 0.4, 1.6, 0.01),
-        this.sliderRow('Shorts length', 'shortsLength', 0.4, 1.6, 0.01),
-        this.sliderRow('Pants fit', 'pantsFit', 0.4, 1.6, 0.01)
+        bodySection('torso', 'Torso', (c) => {
+          c.append(
+            this.sliderRow('Length', 'torsoLength', 0.5, 1.5, 0.01),
+            this.sliderRow('Width / Taper', 'torsoTaper', 0.4, 1.4, 0.01),
+            this.colorRow('Shirt color', 'shirtColor'),
+            this.colorRow('Accent color', 'accentColor')
+          );
+        }),
+        bodySection('shoulders', 'Shoulders', (c) => {
+          c.append(this.sliderRow('Width', 'shoulderWidth', 0.5, 1.5, 0.01));
+        }),
+        bodySection('arms', 'Arms', (c) => {
+          c.append(
+            this.sliderRow('Thickness', 'armThickness', 0.5, 1.6, 0.01),
+            this.sliderRow('Raise / Separation', 'armRaise', 0, 100, 1),
+            this.sliderRow('Sleeve length', 'sleeveLength', 0.4, 1.6, 0.01)
+          );
+        }),
+        bodySection('hips', 'Hips / Legs', (c) => {
+          c.append(
+            this.sliderRow('Hip width', 'hipWidth', 0.5, 1.5, 0.01),
+            this.sliderRow('Leg length', 'legLength', 0.6, 1.5, 0.01),
+            this.sliderRow('Leg taper', 'legTaper', 0.5, 1.5, 0.01),
+            this.colorRow('Shorts color', 'shortsColor')
+          );
+        }),
+        bodySection('feet', 'Feet', (c) => {
+          c.append(this.colorRow('Shoe color', 'shoeColor'));
+        }),
+        bodySection('outfit', 'Outfit', (c) => {
+          c.append(
+            this.sliderRow('Collar height', 'collarHeight', 0.4, 1.6, 0.01),
+            this.sliderRow('Shirt fit', 'shirtFit', 0.4, 1.6, 0.01),
+            this.sliderRow('Shorts length', 'shortsLength', 0.4, 1.6, 0.01),
+            this.sliderRow('Pants fit', 'pantsFit', 0.4, 1.6, 0.01)
+          );
+        })
       );
     }
 
@@ -1387,6 +1456,8 @@ export class AppearanceModal {
         return profile.hipWidth;
       case 'armThickness':
         return profile.armThickness;
+      case 'armRaise':
+        return profile.armRaise ?? 0;
       case 'legLength':
         return profile.legLength;
       case 'legTaper':
@@ -1480,6 +1551,9 @@ export class AppearanceModal {
         break;
       case 'armThickness':
         nextProfile.armThickness = value;
+        break;
+      case 'armRaise':
+        nextProfile.armRaise = value;
         break;
       case 'legLength':
         nextProfile.legLength = value;
