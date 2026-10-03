@@ -11,6 +11,23 @@
       #master-head h1 { font-size: 18px; margin: 0; letter-spacing: .1em; text-transform: uppercase; }
       #master-head .sub { font-size: 12px; color: #9fb3cc; }
       #baseline { font-size: 10px; color: #5eead4; letter-spacing: .1em; text-transform: uppercase; border: 1px solid rgba(94,234,212,.4); padding: 2px 8px; border-radius: 6px; }
+      #mode-badge { font-size: 10px; color: #ffd54a; letter-spacing: .1em; text-transform: uppercase; border: 1px solid rgba(255,213,74,.4); padding: 2px 8px; border-radius: 6px; }
+      #master-head .hgroup { display: flex; align-items: center; gap: 10px; margin-left: 8px; }
+      .hbtn { padding: 5px 12px; border-radius: 7px; border: 1px solid rgba(255,255,255,.25); background: transparent; color: #edf4ff; cursor: pointer; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+      .hbtn:hover:not(:disabled) { background: rgba(255,255,255,.08); }
+      .hbtn:disabled { opacity: .4; cursor: not-allowed; }
+      #btn-save { border-color: rgba(94,234,212,.5); color: #5eead4; }
+      #btn-final { border-color: rgba(255,213,74,.5); color: #ffd54a; }
+      #save-status { font-size: 11px; margin-left: 4px; }
+      #save-status[data-state=unsaved] { color: #fbbf24; }
+      #save-status[data-state=saved] { color: #5eead4; }
+      #save-status[data-state=final] { color: #4ade80; }
+      #save-status[data-state=flash] { color: #4ade80; font-weight: 700; }
+      .confirm-overlay { position: fixed; inset: 0; background: rgba(4,8,14,.72); display: flex; align-items: center; justify-content: center; z-index: 100; }
+      .confirm-box { background: #0f1c2e; border: 1px solid rgba(255,255,255,.15); border-radius: 12px; padding: 20px 24px; max-width: 380px; }
+      .confirm-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+      .confirm-body { font-size: 12px; color: #9fb3cc; margin-bottom: 16px; line-height: 1.5; }
+      .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
       #master-head .nav { margin-left: auto; font-size: 12px; }
       #master-head .nav a { color: #5eead4; text-decoration: none; margin-left: 12px; }
 
@@ -66,7 +83,14 @@
       <div id="master-head">
         <h1>Master Avatar</h1>
         <span class="sub">Avatar Rig &amp; Pose Authoring</span>
-        <span id="baseline">Male Baseline</span>
+        <div class="hgroup">
+          <span id="baseline">Male Baseline</span>
+          <span id="mode-badge">Default Creation</span>
+          <button id="btn-save" class="hbtn" type="button">Save</button>
+          <button id="btn-final" class="hbtn" type="button">Final</button>
+          <button id="btn-save-pose" class="hbtn" type="button" disabled title="Available in Pose Creation mode">Save Pose</button>
+          <span id="save-status" data-state="saved">Saved</span>
+        </div>
         <span class="nav">
           <a href="/master.html">Master</a>
           <a href="/shoulder-test.html">Shoulder Diagnostic</a>

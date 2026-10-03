@@ -69,6 +69,14 @@ export class AppearancePanel {
     this.build();
   }
 
+  // Re-read the golfer's appearance and rebuild the controls. Used by hosts
+  // that replace the appearance wholesale (e.g. reloading a saved baseline).
+  refreshFromGolfer() {
+    this.appearance = this.golfer.appearance;
+    this.root.innerHTML = '';
+    this.build();
+  }
+
   // Apply the current pose through the adapter (semantic -> rig). The host
   // page's tick() re-baselines each frame, so this sets the current offsets.
   private applyPose() {

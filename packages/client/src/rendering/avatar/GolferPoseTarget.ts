@@ -63,8 +63,11 @@ export class GolferPoseTarget implements PoseTarget {
     if (pose.rightKnee) {
       this.applyKnee('kneeR', pose.rightKnee);
     }
+    if (pose.pelvis) {
+      this.applyPelvis(pose.pelvis);
+    }
     if (pose.torso) {
-      this.setJointRotation('torso', [pose.torso.lean ?? 0, pose.torso.rotation ?? 0, 0]);
+      this.applyTorso(pose.torso);
     }
   }
 
@@ -152,6 +155,21 @@ export class GolferPoseTarget implements PoseTarget {
     );
   }
 
+  // Pelvis (hips joint). Validated axes: turn left/right -> local Y, tilt
+  // left/right -> local Z, forward/back -> local X. Rotates the lower body so
+  // coil/uncoil can differ from torso rotation.
+  private applyPelvis(pose: { rotation?: number; lateralTilt?: number; flexion?: number }): void {
+    const group = this.golfer.getJointGroup('hips');
+    if (!group) {
+      return;
+    }
+    group.rotation.set(
+      group.rotation.x + (pose.flexion ?? 0),
+      group.rotation.y + (pose.rotation ?? 0),
+      group.rotation.z + (pose.lateralTilt ?? 0)
+    );
+  }
+
   // Knee flexion bends the lower leg back/up. Local X.
   private applyKnee(joint: 'kneeL' | 'kneeR', pose: { flexion?: number }): void {
     const group = this.golfer.getJointGroup(joint);
@@ -174,10 +192,25 @@ export class GolferPoseTarget implements PoseTarget {
     group.rotation.set(group.rotation.x - pitch, group.rotation.y + yaw, group.rotation.z);
   }
 
-  private setJointRotation(joint: string, rotation: [number, number, number]): void {
-    const group = this.golfer.getJointGroup(joint as GolferJointName);
-    if (group) {
-      group.rotation.set(...rotation);
+  // Torso. Semantic zero = neutral baseline: offsets compose onto the
+  // captured baseline rotation (like every other joint), never absolute.
+  // turn -> local Y, lean/flexion -> local X, lateralLean -> local Z.
+  private applyTorso(pose: {
+    rotation?: number;
+    lean?: number;
+    flexion?: number;
+    lateralLean?: number;
+    twist?: number;
+  }): void {
+    const group = this.golfer.getJointGroup('torso');
+    if (!group) {
+      return;
     }
+    const lean = pose.lean ?? pose.flexion ?? 0;
+    group.rotation.set(
+      group.rotation.x + lean,
+      group.rotation.y + (pose.rotation ?? 0) + (pose.twist ?? 0),
+      group.rotation.z + (pose.lateralLean ?? 0)
+    );
   }
 }

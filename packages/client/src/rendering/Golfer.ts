@@ -112,6 +112,23 @@ export interface BodyProfile {
   chinShape: number;
   neckWidth: number;
   neckLength: number;
+  // Neck placement (baseline). Vertical/forward offset of the neck cylinder.
+  neckVertical: number;
+  neckForward: number;
+  // Hand (baseline). Stylized hand: palm + grouped fingers + thumb.
+  handSize: number;
+  palmWidth: number;
+  palmLength: number;
+  palmDepth: number;
+  // Shorts garment (baseline clothing). NOT the anatomical pelvis.
+  shortsWidth: number;
+  shortsLength: number;
+  shortLegWidth: number;
+  shortLegLength: number;
+  // Feet (baseline).
+  footLength: number;
+  footWidth: number;
+  footHeight: number;
 }
 
 export type FacePresetId = 'male' | 'female' | 'neutral';
@@ -564,6 +581,19 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     chinShape: 1.06,
     neckWidth: 1.0,
     neckLength: 1.0,
+    neckVertical: 1.0,
+    neckForward: 0,
+    handSize: 1.0,
+    palmWidth: 1.0,
+    palmLength: 1.0,
+    palmDepth: 1.0,
+    shortsWidth: 1.0,
+    shortsLength: 1.0,
+    shortLegWidth: 1.0,
+    shortLegLength: 1.0,
+    footLength: 1.0,
+    footWidth: 1.0,
+    footHeight: 1.0,
   },
   athleticFemale: {
     id: 'athleticFemale',
@@ -582,6 +612,19 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     chinShape: 0.7,
     neckWidth: 0.9,
     neckLength: 0.92,
+    neckVertical: 1.0,
+    neckForward: 0,
+    handSize: 0.92,
+    palmWidth: 0.92,
+    palmLength: 0.92,
+    palmDepth: 0.92,
+    shortsWidth: 1.0,
+    shortsLength: 1.0,
+    shortLegWidth: 1.0,
+    shortLegLength: 1.0,
+    footLength: 0.96,
+    footWidth: 0.96,
+    footHeight: 0.96,
   },
   neutralLean: {
     id: 'neutralLean',
@@ -600,6 +643,19 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     chinShape: 0.84,
     neckWidth: 0.88,
     neckLength: 0.96,
+    neckVertical: 1.0,
+    neckForward: 0,
+    handSize: 0.94,
+    palmWidth: 0.94,
+    palmLength: 0.94,
+    palmDepth: 0.94,
+    shortsWidth: 1.0,
+    shortsLength: 1.0,
+    shortLegWidth: 1.0,
+    shortLegLength: 1.0,
+    footLength: 1.0,
+    footWidth: 1.0,
+    footHeight: 1.0,
   },
 };
 
@@ -2590,8 +2646,9 @@ export class Golfer {
 
   private joints = new Map<JointName, THREE.Group>();
   private attachPoints = new Map<string, THREE.Object3D>();
-  private hand = new THREE.Group();
   private disc!: THREE.Mesh;
+  private discVisible = false;
+  private discHand: 'right' | 'left' = 'right';
   private face!: Face;
   public appearance: GolferAppearance;
   private baseY = 0;
@@ -2720,10 +2777,37 @@ export class Golfer {
     }
 
     const hips = this.joint('hips', this.root, new THREE.Vector3(0, 0.92, 0));
-    const pelvis = limb(0.22, 0.17, this.appearance.shortsColor);
-    pelvis.name = 'pelvis-part';
-    pelvis.scale.set(1.06, 1, 0.82);
-    hips.add(pelvis);
+
+    // SHORTS are CLOTHING, not the anatomical pelvis. `hips` remains the
+    // semantic pelvis joint; `shorts-root` is visible garment geometry that
+    // follows the pelvis. Never map pose semantics onto shorts parts.
+    // Assembled as a waist/hip section plus two short legs so the garment
+    // reads as shorts and the thighs emerge beneath it (a single vertical
+    // capsule always fills the gap between the legs and hides the thighs).
+    const shortsRoot = new THREE.Group();
+    shortsRoot.name = 'shorts-root';
+    hips.add(shortsRoot);
+    const shortsMat = () =>
+      new THREE.MeshStandardMaterial({ color: this.appearance.shortsColor, roughness: 0.78 });
+
+    // Waist/hip section: a squashed sphere forming the seat, ending around
+    // the hip joints (y ~1.80) so the crotch splits above the thighs.
+    const shortsWaist = new THREE.Mesh(new THREE.SphereGeometry(0.19, 14, 12), shortsMat());
+    shortsWaist.name = 'shorts-waist';
+    shortsWaist.scale.set(1.18, 0.62, 0.94);
+    shortsWaist.position.set(0, 0.0, 0);
+    shortsWaist.castShadow = true;
+    shortsRoot.add(shortsWaist);
+
+    // Short legs: short capsules hanging from the hip line, ending well above
+    // the knees (~upper thigh) so both thighs stay visible below.
+    for (const side of [-1, 1]) {
+      const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.088, 0.16, 6, 12), shortsMat());
+      leg.name = side < 0 ? 'shorts-left' : 'shorts-right';
+      leg.position.set(side * 0.105, -0.06, 0);
+      leg.castShadow = true;
+      shortsRoot.add(leg);
+    }
 
     const torso = this.joint('torso', hips, new THREE.Vector3(0, 0.02, 0));
     const chest = limb(0.42, 0.19, this.appearance.shirtColor);
@@ -2753,8 +2837,25 @@ export class Golfer {
       new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.75 })
     );
     neck.name = 'neck-part';
-    neck.position.y = 0.74;
+    neck.position.set(
+      0,
+      0.74 * this.appearance.profile.neckVertical,
+      this.appearance.profile.neckForward
+    );
     torso.add(neck);
+
+    // Stylized neck→shoulder (trapezius) transition: a skin-toned squashed
+    // dome that fills the gap between the thin neck cylinder and the
+    // shoulders/chest. Visible geometry only — NOT a joint.
+    const trapezius = new THREE.Mesh(
+      new THREE.SphereGeometry(0.15, 14, 12),
+      new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.75 })
+    );
+    trapezius.name = 'trapezius-part';
+    trapezius.scale.set(1.9, 0.55, 0.9);
+    trapezius.position.set(0, 0.66, 0.0);
+    trapezius.castShadow = true;
+    torso.add(trapezius);
 
     const head = this.joint('head', torso, new THREE.Vector3(0, 0.78, 0));
     const faceConfig: FaceConfig = {
@@ -2778,6 +2879,21 @@ export class Golfer {
     backPoint.position.set(0, 0.1, -0.17);
     torso.add(backPoint);
     this.attachPoints.set('back', backPoint);
+
+    // Uniform LOGO attachment slots (transform nodes, no visible geometry).
+    // A Team's branding supplies the logo asset; the uniform just exposes
+    // where logos anchor. Empty slot = no logo (never a broken texture).
+    const chestPrimaryLogo = new THREE.Group();
+    chestPrimaryLogo.name = 'chestPrimaryLogo';
+    chestPrimaryLogo.position.set(0, 0.5, 0.17);
+    torso.add(chestPrimaryLogo);
+    this.attachPoints.set('chestPrimaryLogo', chestPrimaryLogo);
+
+    const chestSecondaryLogo = new THREE.Group();
+    chestSecondaryLogo.name = 'chestSecondaryLogo';
+    chestSecondaryLogo.position.set(0.12, 0.3, 0.17);
+    torso.add(chestSecondaryLogo);
+    this.attachPoints.set('chestSecondaryLogo', chestSecondaryLogo);
 
     for (const side of [1, -1] as const) {
       const isRight = side === 1;
@@ -2814,23 +2930,57 @@ export class Golfer {
       forearm.name = isRight ? 'forearm-right' : 'forearm-left';
       elbow.add(forearm);
 
-      // Hand at the wrist (end of forearm).
-      const hand = new THREE.Mesh(
-        new THREE.SphereGeometry(0.082, 10, 8),
+      // Stylized HAND: palm + grouped fingers + thumb, all skin-toned, plus a
+      // non-visible discGrip attachment node. Neutral = relaxed open hand; no
+      // fist/grip posing here (grips are Pose data, later).
+      const handGroup = new THREE.Group();
+      handGroup.name = isRight ? 'hand-right' : 'hand-left';
+      handGroup.position.y = -0.44;
+      elbow.add(handGroup);
+
+      const palm = new THREE.Mesh(
+        new THREE.SphereGeometry(0.075, 12, 10),
         new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.75 })
       );
-      hand.name = isRight ? 'hand-right-mesh' : 'hand-left-mesh';
-      hand.scale.set(0.9, 1.15, 0.7);
-      hand.position.y = -0.46;
-      hand.castShadow = true;
-      elbow.add(hand);
+      palm.name = isRight ? 'palm-right' : 'palm-left';
+      palm.scale.set(0.95, 1.0, 0.6);
+      palm.position.y = -0.02;
+      palm.castShadow = true;
+      handGroup.add(palm);
 
+      // Grouped four fingers (one geometry, relaxed slight curl).
+      const fingers = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.045, 0.09, 4, 10),
+        new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.75 })
+      );
+      fingers.name = isRight ? 'fingers-right' : 'fingers-left';
+      fingers.scale.set(1.1, 1, 0.7);
+      fingers.position.set(0, -0.13, 0.01);
+      fingers.rotation.x = -0.25;
+      fingers.castShadow = true;
+      handGroup.add(fingers);
+
+      // Thumb: separate geometry, mirrored left/right, attaches to palm side.
+      const thumb = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.03, 0.07, 4, 8),
+        new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.75 })
+      );
+      thumb.name = isRight ? 'thumb-right' : 'thumb-left';
+      thumb.position.set(-side * 0.075, -0.05, 0.03);
+      thumb.rotation.z = side * 0.7;
+      thumb.castShadow = true;
+      handGroup.add(thumb);
+
+      // Semantic held-disc attachment node (no visible geometry). Follows the
+      // hand automatically through the hierarchy.
+      const discGrip = new THREE.Group();
+      discGrip.name = isRight ? 'rightDiscGrip' : 'leftDiscGrip';
+      discGrip.position.set(0, -0.12, 0.04);
+      handGroup.add(discGrip);
       if (isRight) {
-        this.hand.position.set(0, -0.44, 0);
-        elbow.add(this.hand);
-        this.attachPoints.set('rightHand', this.hand);
+        this.attachPoints.set('rightHand', discGrip);
       } else {
-        this.attachPoints.set('leftHand', hand);
+        this.attachPoints.set('leftHand', discGrip);
       }
 
       const hipName: JointName = isRight ? 'hipR' : 'hipL';
@@ -2874,17 +3024,17 @@ export class Golfer {
       knee.add(toe);
     }
 
-    // ONE held disc, parented to the throwing (right) hand chain so it follows
-    // the arm. Sized/positioned to sit in the hand rather than a giant slab at
-    // the wrist. Do NOT also call equipAccessory('disc') here — that creates a
-    // second overlapping disc (the duplicate seen in the BODY preview).
+    // ONE held disc, attached to the active discGrip (default = right hand).
+    // Reuses the shared createDiscVisual construction. Position/orientation is
+    // LOCAL to the grip node so the disc follows the hand via the hierarchy —
+    // no render-loop following. Do NOT call equipAccessory('disc') here.
     this.disc = createDiscVisual(0xe03a2f);
     this.disc.name = 'held-disc';
     this.disc.rotation.set(Math.PI / 2, 0, 0);
     this.disc.scale.setScalar(0.5);
-    this.disc.position.set(0, -0.05, 0.06);
-    this.disc.visible = false; // hidden during arm-chain calibration
-    this.hand.add(this.disc);
+    this.disc.position.set(0, -0.02, 0.02);
+    this.disc.visible = this.discVisible;
+    this.attachDiscTo(this.discHand);
 
     if (import.meta.env.DEV) {
       this.logArmRigDebug();
@@ -2957,9 +3107,10 @@ export class Golfer {
       neck.scale.set(profile.neckWidth, profile.neckLength, profile.neckWidth);
     }
 
-    const pelvis = this.root.getObjectByName('pelvis-part');
-    if (pelvis instanceof THREE.Mesh) {
-      pelvis.scale.set(1.06 * profile.hipWidth, 1, 0.82 * profile.torsoTaper);
+    // Shorts follow the pelvis: widen/narrow the garment with hipWidth.
+    const shortsRoot = this.root.getObjectByName('shorts-root');
+    if (shortsRoot) {
+      shortsRoot.scale.set(profile.hipWidth, 1, profile.torsoTaper);
     }
 
     const shoulderL = this.joints.get('shoulderL');
@@ -2988,12 +3139,12 @@ export class Golfer {
       'upper-arm-right',
       'forearm-left',
       'forearm-right',
-      'hand-left-mesh',
-      'hand-right-mesh',
+      'palm-left',
+      'palm-right',
     ].forEach((name) => {
       const mesh = this.root.getObjectByName(name);
       if (mesh) {
-        const base = name.startsWith('hand') ? new THREE.Vector3(0.9, 1.15, 0.7) : undefined;
+        const base = name.startsWith('palm') ? new THREE.Vector3(0.95, 1.0, 0.6) : undefined;
         if (base) {
           mesh.scale.set(base.x * armThickness, base.y, base.z * armThickness);
         } else {
@@ -3007,6 +3158,22 @@ export class Golfer {
     if (hipL) {
       hipL.scale.set(profile.hipWidth, profile.legLength, 1);
     }
+    if (hipR) {
+      hipR.scale.set(profile.hipWidth, profile.legLength, 1);
+    }
+
+    // Feet baseline: length (Z), width (X), height (Y).
+    const footL = profile.footLength ?? 1;
+    const footW = profile.footWidth ?? 1;
+    const footH = profile.footHeight ?? 1;
+    ['shoe-left', 'shoe-right'].forEach((name) => {
+      const mesh = this.root.getObjectByName(name);
+      if (mesh) mesh.scale.set(footW, footH, footL);
+    });
+    ['toe-left', 'toe-right'].forEach((name) => {
+      const mesh = this.root.getObjectByName(name);
+      if (mesh) mesh.scale.set(footW, 0.72 * footH, 1.3 * footL);
+    });
     if (hipR) {
       hipR.scale.set(profile.hipWidth, profile.legLength, 1);
     }
@@ -3348,7 +3515,7 @@ export class Golfer {
       if (name === 'shirt-part') {
         material.color.setHex(this.appearance.shirtColor);
       }
-      if (name === 'shorts-part') {
+      if (name === 'shorts-part' || name.startsWith('shorts-')) {
         material.color.setHex(this.appearance.shortsColor);
       }
       if (name === 'shoe-part') {
@@ -3377,6 +3544,53 @@ export class Golfer {
   // semantic pose data. Additive; does not change existing behavior.
   applyPoseBaseline() {
     this.applyPose(STAND_POSE, STAND_POSE, 0);
+  }
+
+  // Master-preview-only visibility toggle for the held disc. Keeps the disc
+  // from confusing hand/arm diagnosis during neutral anatomy inspection.
+  // Does not touch gameplay disc logic.
+  setDiscVisible(visible: boolean) {
+    this.discVisible = visible;
+    if (this.disc) {
+      this.disc.visible = visible;
+    }
+  }
+
+  // Held-disc attachment. The grip node is semantic (no visible geometry);
+  // the disc is positioned LOCAL to the grip so it follows the hand through
+  // the hierarchy. There is only ever ONE held disc.
+  private attachDiscTo(hand: 'right' | 'left') {
+    const grip = this.root.getObjectByName(hand === 'right' ? 'rightDiscGrip' : 'leftDiscGrip');
+    if (grip && this.disc) {
+      grip.add(this.disc);
+    }
+  }
+
+  setDiscHand(hand: 'right' | 'left') {
+    this.discHand = hand;
+    this.attachDiscTo(hand);
+  }
+
+  getDiscGrip(hand: 'right' | 'left'): THREE.Group | undefined {
+    return this.root.getObjectByName(hand === 'right' ? 'rightDiscGrip' : 'leftDiscGrip') as
+      THREE.Group | undefined;
+  }
+
+  // Read-only access to a named attachment/logo slot (chestPrimaryLogo,
+  // chestSecondaryLogo, head, back, rightHand, leftHand...).
+  getAttachPoint(name: string): THREE.Object3D | undefined {
+    return this.attachPoints.get(name);
+  }
+
+  // Apply resolved UNIFORM branding to the appearance. Maps semantic slots to
+  // the uniform's existing color fields; skin/hair/eyes are untouched.
+  // Branding is independent of pose/proportions/rig.
+  applyBranding(branding: { primaryColor: number; secondaryColor: number; accentColor: number }) {
+    this.setAppearance({
+      shirtColor: branding.primaryColor,
+      shortsColor: branding.secondaryColor,
+      accentColor: branding.accentColor,
+    });
   }
 
   setHeading(yaw: number) {

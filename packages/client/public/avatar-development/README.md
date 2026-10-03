@@ -61,6 +61,8 @@ interpolate between stages to animate.
 - [locomotion/](locomotion/README.md) — reusable movement actions
 - [reactions/](reactions/README.md) — celebration/reaction actions
 - [pose-editor/](pose-editor/README.md) — the authoring tool we want
+- [authoring/](authoring/README.md) — authoring modes, save/final workflow,
+  factories, repositories
 - [diagnostics/](diagnostics/README.md) — markers, axes helpers, validation rules
 - [references/](references/README.md) — screenshots/reference images conventions
 - [prompts/](prompts/README.md) — copy/paste Copilot prompts
