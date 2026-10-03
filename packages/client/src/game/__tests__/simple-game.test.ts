@@ -459,7 +459,7 @@ describe('Game Components', () => {
   it('should default a fresh face to the male preset and keep the face-specific controls aligned to that base', () => {
     const fresh = buildCharacterAppearance({});
     expect(fresh.facePreset).toBe('male');
-    expect(fresh.hairStyle).toBe('sidePart');
+    expect(fresh.hairStyle).toBe('buzzCut');
     expect(fresh.hairColor).toBe(0x1b120d);
     expect(fresh.skinTone).toBe(0xe8c4b8);
     expect(fresh.face.brow).toBeCloseTo(FACE_PRESETS.male.brow, 5);
@@ -468,7 +468,7 @@ describe('Game Components', () => {
   });
 
   it('should match the placeholder-inspired male and female settings as the shared defaults', () => {
-    expect(FACE_PRESETS.male.hairStyle).toBe('sidePart');
+    expect(FACE_PRESETS.male.hairStyle).toBe('buzzCut');
     expect(FACE_PRESETS.male.hairColor).toBe(0x1b120d);
     expect(FACE_PRESETS.male.skinTone).toBe(0xe8c4b8);
     expect(FACE_PRESETS.female.hairStyle).toBe('bun');
@@ -479,11 +479,11 @@ describe('Game Components', () => {
     expect(FACE_PRESETS.neutral.skinTone).toBe(0xefc49d);
     expect(FACE_PRESETS.neutral.headScale).toBeCloseTo(1.04, 5);
     expect(FACE_PRESETS.neutral.jawWidth).toBeCloseTo(1.08, 5);
-    expect(DEFAULT_MALE_APPEARANCE.hairStyle).toBe('sidePart');
+    expect(DEFAULT_MALE_APPEARANCE.hairStyle).toBe('buzzCut');
     expect(DEFAULT_MALE_APPEARANCE.facePreset).toBe('male');
     expect(DEFAULT_MALE_APPEARANCE.profile.headScale).toBeCloseTo(1.02, 5);
     expect(DEFAULT_MALE_APPEARANCE.profile.jawWidth).toBeCloseTo(0.99, 5);
-    expect(DEFAULT_GOLFER_APPEARANCE.hairStyle).toBe('sidePart');
+    expect(DEFAULT_GOLFER_APPEARANCE.hairStyle).toBe('buzzCut');
     expect(DEFAULT_GOLFER_APPEARANCE.facePreset).toBe('male');
   });
 

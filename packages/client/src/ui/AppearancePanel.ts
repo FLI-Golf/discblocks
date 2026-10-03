@@ -41,6 +41,10 @@ export class AppearancePanel {
   private readonly golfer: Golfer;
   private readonly onChange?: () => void;
   private readonly poseTarget: GolferPoseTarget;
+  // When true the panel drives the pose itself (shoulder-test). When false
+  // (master), the host owns the authoritative pose draft and the panel just
+  // notifies so the host can re-apply it after the rig rebuild.
+  private readonly ownsPose: boolean;
   private readonly pose: PoseState = {
     lAbduction: 0,
     lFlexion: 0,
@@ -58,9 +62,10 @@ export class AppearancePanel {
     rKnee: 0,
   };
 
-  constructor(container: HTMLElement, golfer: Golfer, onChange?: () => void) {
+  constructor(container: HTMLElement, golfer: Golfer, onChange?: () => void, ownsPose = true) {
     this.golfer = golfer;
     this.onChange = onChange;
+    this.ownsPose = ownsPose;
     this.appearance = golfer.appearance;
     this.poseTarget = new GolferPoseTarget(golfer);
     this.root = document.createElement('div');
@@ -77,9 +82,14 @@ export class AppearancePanel {
     this.build();
   }
 
-  // Apply the current pose through the adapter (semantic -> rig). The host
-  // page's tick() re-baselines each frame, so this sets the current offsets.
+  // Apply the current pose through the adapter (semantic -> rig). When the
+  // host owns the pose (master), defer to the host via onChange instead of
+  // overwriting with this panel's internal zero-pose.
   private applyPose() {
+    if (!this.ownsPose) {
+      this.onChange?.();
+      return;
+    }
     const d = THREE.MathUtils.degToRad;
     const p = this.pose;
     const pose: GolferPose = {
@@ -213,6 +223,34 @@ export class AppearancePanel {
     return row;
   }
 
+  private hairStyleSelect(): HTMLElement {
+    const row = document.createElement('label');
+    row.className = 'appearance-control';
+    row.style.gridTemplateColumns = '1fr auto';
+    const span = document.createElement('span');
+    span.textContent = 'Style';
+    const sel = document.createElement('select');
+    sel.style.cssText =
+      'padding:4px 8px;border-radius:6px;border:1px solid rgba(255,213,74,.3);background:rgba(10,17,28,.96);color:#edf4ff;';
+    const styles: Array<[string, string]> = [['buzzCut', 'Buzz Cut']];
+    for (const [value, label] of styles) {
+      const o = document.createElement('option');
+      o.value = value;
+      o.textContent = label;
+      sel.appendChild(o);
+    }
+    sel.value = this.appearance.hairStyle ?? 'sidePart';
+    sel.addEventListener('change', () => {
+      this.appearance = {
+        ...this.appearance,
+        hairStyle: sel.value as GolferAppearance['hairStyle'],
+      };
+      this.apply();
+    });
+    row.append(span, sel);
+    return row;
+  }
+
   private section(
     id: string,
     title: string,
@@ -267,9 +305,9 @@ export class AppearancePanel {
     const adv = (k: FaceAdvancedKey) =>
       (f as Record<string, number | undefined>)[k] ?? FACE_ADVANCED_DEFAULTS[k];
     const scale = (label: string, k: FaceAdvancedKey) =>
-      this.slider(label, k, 0.5, 1.5, 0.01, () => adv(k));
+      this.slider(label, k, 0.1, 2.5, 0.01, () => adv(k));
     const pos = (label: string, k: FaceAdvancedKey) =>
-      this.slider(label, k, -0.1, 0.1, 0.005, () => adv(k));
+      this.slider(label, k, -0.5, 0.5, 0.005, () => adv(k));
     const macro = (label: string, k: keyof typeof FACE_PARAMETER_LIMITS, get: () => number) =>
       this.slider(
         label,
@@ -376,6 +414,7 @@ export class AppearancePanel {
       }),
       this.heading('Hair'),
       this.section('hair', 'Hair', '', (c) => {
+        c.append(this.hairStyleSelect());
         c.append(
           scale('Scale', 'hairScale'),
           scale('Width', 'hairWidth'),
@@ -383,7 +422,19 @@ export class AppearancePanel {
           scale('Depth', 'hairDepth'),
           pos('Vertical', 'hairPositionY'),
           pos('Forward / Back', 'hairPositionZ'),
-          this.color('Color', 'hairColor', () => this.appearance.hairColor)
+          this.color('Color', 'hairColor', () => this.appearance.hairColor),
+          scale('Back Length', 'backHairLength'),
+          scale('Sideburn Length', 'sideburnLength'),
+          scale('Sideburn Width', 'sideburnWidth')
+        );
+      }),
+      this.heading('Ears'),
+      this.section('ears', 'Ears', '', (c) => {
+        c.append(
+          scale('Size', 'earSize'),
+          scale('Prominence (Stick Out)', 'earProminence'),
+          scale('Spacing (In / Out)', 'earSpacing'),
+          pos('Vertical', 'earVertical')
         );
       }),
       this.heading('Skin'),

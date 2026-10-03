@@ -112,9 +112,31 @@ export interface BodyProfile {
   chinShape: number;
   neckWidth: number;
   neckLength: number;
+  // Torso shape (baseline). Chest width (X), chest depth (Z, side view),
+  // waist size (hem X/Z), waist thickness (hem Y).
+  chestWidth: number;
+  chestDepth: number;
+  waistSize: number;
+  waistThickness: number;
+  // Lower torso (jersey bottom, tucked into the belt/shorts). Width (X) and
+  // depth (Z) of that region.
+  lowerTorsoWidth: number;
+  lowerTorsoDepth: number;
+  // Head vertical placement (baseline). 1 = default (y 0.78); moves head
+  // up/down relative to the torso for neck/torso fit.
+  headVertical: number;
   // Neck placement (baseline). Vertical/forward offset of the neck cylinder.
   neckVertical: number;
   neckForward: number;
+  // Trapezius (neck→shoulder) transition dome (baseline). Visible geometry.
+  trapeziusWidth: number;
+  trapeziusHeight: number;
+  // Shoulder placement (baseline). How far the shoulder pivot sits from the
+  // torso centerline (1 = default ±0.32; smaller = closer to the torso).
+  shoulderInOut: number;
+  // Shoulder vertical placement (baseline). 1 = default height (y 0.6);
+  // smaller = shoulders sit lower, larger = higher.
+  shoulderVertical: number;
   // Hand (baseline). Stylized hand: palm + grouped fingers + thumb.
   handSize: number;
   palmWidth: number;
@@ -123,12 +145,20 @@ export interface BodyProfile {
   // Shorts garment (baseline clothing). NOT the anatomical pelvis.
   shortsWidth: number;
   shortsLength: number;
+  // How high the waistband rises up the torso (1 = waist, higher = covers torso).
+  shortsRise: number;
+  // How far the shorts sit forward (Z) toward the front of the body.
+  shortsForward: number;
+  // Whole-garment front-to-back depth (Z).
+  shortsDepth: number;
   shortLegWidth: number;
   shortLegLength: number;
   // Feet (baseline).
   footLength: number;
   footWidth: number;
   footHeight: number;
+  // Socks (baseline clothing). Radial thickness.
+  sockThickness: number;
 }
 
 export type FacePresetId = 'male' | 'female' | 'neutral';
@@ -199,7 +229,14 @@ export type FaceAdvancedKey =
   | 'hairHeight'
   | 'hairDepth'
   | 'hairPositionY'
-  | 'hairPositionZ';
+  | 'hairPositionZ'
+  | 'sideburnLength'
+  | 'sideburnWidth'
+  | 'earSize'
+  | 'earProminence'
+  | 'earSpacing'
+  | 'earVertical'
+  | 'backHairLength';
 
 export const FACE_PARAMETER_LIMITS: Record<
   FaceParameterKey,
@@ -209,7 +246,7 @@ export const FACE_PARAMETER_LIMITS: Record<
   jawWidth: { min: 0.4, max: 1.6, default: 0.99, step: 0.01 },
   chinShape: { min: 0.5, max: 1.6, default: 0.96, step: 0.01 },
   brow: { min: 0.0, max: 1.2, default: 0.72, step: 0.01 },
-  nose: { min: 0.55, max: 1.45, default: 0.5, step: 0.01 },
+  nose: { min: 0.05, max: 1.8, default: 0.32, step: 0.01 },
   eyeSpacing: { min: 0.3, max: 1.2, default: 0.7, step: 0.01 },
   eyeSize: { min: 0.5, max: 1.5, default: 1.0, step: 0.01 },
   mouth: { min: 0.3, max: 1.4, default: 0.42, step: 0.01 },
@@ -266,6 +303,13 @@ export const FACE_ADVANCED_DEFAULTS: Record<FaceAdvancedKey, number> = {
   hairDepth: 1,
   hairPositionY: 0,
   hairPositionZ: 0,
+  sideburnLength: 1,
+  sideburnWidth: 1,
+  earSize: 1,
+  earProminence: 1,
+  earSpacing: 1,
+  earVertical: 0,
+  backHairLength: 1,
 };
 
 const FACE_ADVANCED_LIMITS: Record<FaceAdvancedKey, { min: number; max: number }> = {
@@ -317,6 +361,13 @@ const FACE_ADVANCED_LIMITS: Record<FaceAdvancedKey, { min: number; max: number }
   hairDepth: { min: 0.5, max: 1.5 },
   hairPositionY: { min: -0.1, max: 0.1 },
   hairPositionZ: { min: -0.1, max: 0.1 },
+  sideburnLength: { min: 0, max: 2 },
+  sideburnWidth: { min: 0, max: 2 },
+  earSize: { min: 0.3, max: 2 },
+  earProminence: { min: 0, max: 2 },
+  earSpacing: { min: 0.6, max: 1.5 },
+  earVertical: { min: -0.2, max: 0.2 },
+  backHairLength: { min: 0, max: 2 },
 };
 
 export function clampFaceParameterValue(key: FaceParameterKey, value: number): number {
@@ -406,6 +457,13 @@ export interface FaceConfig {
   hairDepth: number;
   hairPositionY: number;
   hairPositionZ: number;
+  sideburnLength: number;
+  sideburnWidth: number;
+  earSize: number;
+  earProminence: number;
+  earSpacing: number;
+  earVertical: number;
+  backHairLength: number;
 }
 
 export interface CharacterAppearance {
@@ -419,6 +477,10 @@ export interface CharacterAppearance {
   shortsColor: number;
   shoeColor: number;
   accentColor: number;
+  /** Optional belt color override; defaults to shortsColor (secondary slot). */
+  beltColor?: number;
+  /** Optional buckle color override; defaults to a metallic silver. */
+  buckleColor?: number;
   jerseyNumber: number;
   brow: number;
   nose: number;
@@ -434,10 +496,17 @@ export interface CharacterAppearance {
   facePreset?: FacePresetId;
   outfit: {
     sleeveLength: number;
+    sleeveWidth: number;
     collarHeight: number;
     shirtFit: number;
     shortsLength: number;
     pantsFit: number;
+    beltThickness: number;
+    beltWidth: number;
+    beltVertical: number;
+    beltBuckle: number;
+    /** How snug the belt ring is to the body (smaller = tighter). */
+    beltTightness: number;
   };
   face: {
     brow: number;
@@ -538,7 +607,7 @@ const DEFAULT_LOOK: GolferLook = {
   shorts: 0x1a1a1e,
   skin: 0xf0c8a0,
   hair: 0x3b241b,
-  hairStyle: 'sidePart',
+  hairStyle: 'buzzCut',
   build: 1.04,
 };
 
@@ -581,19 +650,34 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     chinShape: 1.06,
     neckWidth: 1.0,
     neckLength: 1.0,
+    chestWidth: 1.0,
+    chestDepth: 1.0,
+    waistSize: 1.0,
+    waistThickness: 1.0,
+    lowerTorsoWidth: 1.0,
+    lowerTorsoDepth: 1.0,
+    headVertical: 1.0,
     neckVertical: 1.0,
     neckForward: 0,
+    trapeziusWidth: 1.0,
+    trapeziusHeight: 1.0,
+    shoulderInOut: 1.0,
+    shoulderVertical: 1.0,
     handSize: 1.0,
     palmWidth: 1.0,
     palmLength: 1.0,
     palmDepth: 1.0,
     shortsWidth: 1.0,
     shortsLength: 1.0,
+    shortsRise: 1.0,
+    shortsForward: 0.0,
+    shortsDepth: 1.0,
     shortLegWidth: 1.0,
     shortLegLength: 1.0,
     footLength: 1.0,
     footWidth: 1.0,
     footHeight: 1.0,
+    sockThickness: 1.0,
   },
   athleticFemale: {
     id: 'athleticFemale',
@@ -612,19 +696,34 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     chinShape: 0.7,
     neckWidth: 0.9,
     neckLength: 0.92,
+    chestWidth: 0.92,
+    chestDepth: 0.9,
+    waistSize: 0.9,
+    waistThickness: 0.9,
+    lowerTorsoWidth: 0.92,
+    lowerTorsoDepth: 0.9,
+    headVertical: 1.0,
     neckVertical: 1.0,
     neckForward: 0,
+    trapeziusWidth: 0.9,
+    trapeziusHeight: 0.92,
+    shoulderInOut: 1.0,
+    shoulderVertical: 1.0,
     handSize: 0.92,
     palmWidth: 0.92,
     palmLength: 0.92,
     palmDepth: 0.92,
     shortsWidth: 1.0,
     shortsLength: 1.0,
+    shortsRise: 1.0,
+    shortsForward: 0.0,
+    shortsDepth: 1.0,
     shortLegWidth: 1.0,
     shortLegLength: 1.0,
     footLength: 0.96,
     footWidth: 0.96,
     footHeight: 0.96,
+    sockThickness: 1.0,
   },
   neutralLean: {
     id: 'neutralLean',
@@ -643,19 +742,34 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     chinShape: 0.84,
     neckWidth: 0.88,
     neckLength: 0.96,
+    chestWidth: 1.0,
+    chestDepth: 1.0,
+    waistSize: 1.0,
+    waistThickness: 1.0,
+    lowerTorsoWidth: 1.0,
+    lowerTorsoDepth: 1.0,
+    headVertical: 1.0,
     neckVertical: 1.0,
     neckForward: 0,
+    trapeziusWidth: 1.0,
+    trapeziusHeight: 1.0,
+    shoulderInOut: 1.0,
+    shoulderVertical: 1.0,
     handSize: 0.94,
     palmWidth: 0.94,
     palmLength: 0.94,
     palmDepth: 0.94,
     shortsWidth: 1.0,
     shortsLength: 1.0,
+    shortsRise: 1.0,
+    shortsForward: 0.0,
+    shortsDepth: 1.0,
     shortLegWidth: 1.0,
     shortLegLength: 1.0,
     footLength: 1.0,
     footWidth: 1.0,
     footHeight: 1.0,
+    sockThickness: 1.0,
   },
 };
 
@@ -681,10 +795,16 @@ export function buildCharacterAppearance(
 
   const outfitDefaults = {
     sleeveLength: 1,
+    sleeveWidth: 1,
     collarHeight: 1,
     shirtFit: 1,
     shortsLength: 1,
     pantsFit: 0.9,
+    beltThickness: 1,
+    beltWidth: 1,
+    beltVertical: 0,
+    beltBuckle: 1,
+    beltTightness: 1,
   };
 
   const outfit = {
@@ -692,6 +812,7 @@ export function buildCharacterAppearance(
     ...overrides.outfit,
     sleeveLength:
       overrides.outfit?.sleeveLength ?? overrides.sleeveLength ?? outfitDefaults.sleeveLength,
+    sleeveWidth: overrides.outfit?.sleeveWidth ?? outfitDefaults.sleeveWidth,
     collarHeight:
       overrides.outfit?.collarHeight ?? overrides.collarHeight ?? outfitDefaults.collarHeight,
     shirtFit: overrides.outfit?.shirtFit ?? overrides.shirtFit ?? outfitDefaults.shirtFit,
@@ -794,12 +915,12 @@ export const FACE_PRESETS: Record<FacePresetId, FaceConfig> = {
     preset: 'male',
     skinTone: 0xe8c4b8,
     hairColor: 0x1b120d,
-    hairStyle: 'sidePart',
+    hairStyle: 'buzzCut',
     headScale: 1.0,
     jawWidth: 0.99,
     chinShape: 0.96,
     brow: 0.72,
-    nose: 0.5,
+    nose: 0.32,
     eyeSpacing: 0.7,
     eyeSize: 1.0,
     mouth: 0.42,
@@ -849,7 +970,7 @@ export const DEFAULT_MALE_APPEARANCE: GolferAppearance = buildCharacterAppearanc
   avatarModelId: 'none',
   bodyProfile: 'athleticMale',
   skinTone: 0xe8c4b8,
-  hairStyle: 'sidePart',
+  hairStyle: 'buzzCut',
   hairColor: 0x1b120d,
   shirtColor: 0xf2f4f8,
   shortsColor: 0x1a1a1e,
@@ -1874,6 +1995,13 @@ export class Face {
     if (this.hairRoot) {
       this.hairRoot.removeFromParent();
     }
+    // Remove any leaked ears/sideburns from the previous build (they are
+    // parented to the face root, not hair-root, so hair-root removal does not
+    // catch them).
+    ['ear-left', 'ear-right', 'sideburn-left', 'sideburn-right'].forEach((n) => {
+      const old = this.root.getObjectByName(n);
+      if (old) old.removeFromParent();
+    });
 
     const hairRoot = new THREE.Group();
     hairRoot.name = 'hair-root';
@@ -1901,18 +2029,81 @@ export class Face {
 
     if (hairStyle === 'buzzCut') {
       const metrics = this.getSkullMetrics();
+      const sbLen = this.advancedValue('sideburnLength');
+      const sbWidth = this.advancedValue('sideburnWidth');
+      const earSize = this.advancedValue('earSize');
+      const backLen = this.advancedValue('backHairLength');
+
       const shell = new THREE.Mesh(
-        new THREE.SphereGeometry(metrics.width * 0.46, 22, 16, 0, Math.PI * 2, 0.22, 1.1),
+        new THREE.SphereGeometry(metrics.width * 0.42, 22, 16, 0, Math.PI * 2, 0.28, 1.0),
         hairMaterial
       );
       shell.name = 'hair-buzz-shell';
-      shell.scale.set(1.0, 0.64, 1.04);
+      shell.scale.set(1.0, 0.5, 0.96);
       shell.position.set(
         metrics.center.x,
-        metrics.center.y + metrics.height * 0.12,
+        metrics.center.y + metrics.height * 0.1,
         metrics.center.z - metrics.depth * 0.02
       );
       hairRoot.add(shell);
+
+      // Back hair: extends the shell down the back of the skull.
+      if (backLen > 0.01) {
+        const back = new THREE.Mesh(
+          new THREE.SphereGeometry(metrics.width * 0.4, 18, 14, 0, Math.PI * 2, 1.0, 0.7 * backLen),
+          hairMaterial
+        );
+        back.name = 'hair-buzz-back';
+        back.scale.set(1.0, 0.6, 0.9);
+        back.position.set(
+          metrics.center.x,
+          metrics.center.y - metrics.height * 0.04,
+          metrics.backZ + metrics.depth * 0.04
+        );
+        hairRoot.add(back);
+      }
+
+      // Sideburns: short vertical strips in front of the ears.
+      if (sbLen > 0.01 && sbWidth > 0.01) {
+        for (const side of [-1, 1]) {
+          const sb = new THREE.Mesh(
+            new THREE.CapsuleGeometry(0.014 * sbWidth, 0.05 * sbLen, 4, 8),
+            hairMaterial
+          );
+          sb.name = side < 0 ? 'sideburn-left' : 'sideburn-right';
+          sb.position.set(
+            metrics.center.x + side * metrics.width * 0.4,
+            metrics.center.y - metrics.height * 0.04,
+            metrics.center.z + metrics.depth * 0.16
+          );
+          hairRoot.add(sb);
+        }
+      }
+
+      // Ears: skin-toned, tucked against the head. prominence pushes them out
+      // (Z rotation-free: larger = stick out more), spacing moves them
+      // in/out along X, vertical moves them up/down.
+      const earProm = this.advancedValue('earProminence');
+      const earSpace = this.advancedValue('earSpacing');
+      const earVert = this.advancedValue('earVertical');
+      for (const side of [-1, 1]) {
+        const ear = new THREE.Mesh(
+          new THREE.SphereGeometry(0.035, 12, 10),
+          new THREE.MeshStandardMaterial({ color: this.config.skinTone, roughness: 0.75 })
+        );
+        ear.name = side < 0 ? 'ear-left' : 'ear-right';
+        ear.scale.set(0.32 * earSize, 0.6 * earSize, 0.4 * earSize * earProm);
+        ear.position.set(
+          metrics.center.x + side * metrics.width * 0.42 * earSpace,
+          metrics.center.y - metrics.height * 0.05 + earVert,
+          metrics.center.z + metrics.depth * 0.1
+        );
+        ear.castShadow = true;
+        // Parent to the face root (not hair-root) so hair Scale does not blow
+        // up the ears.
+        this.root.add(ear);
+      }
+
       console.log('[procedural hair]', {
         style: hairStyle,
         children: hairRoot.children.map((child) => ({
@@ -2790,19 +2981,20 @@ export class Golfer {
     const shortsMat = () =>
       new THREE.MeshStandardMaterial({ color: this.appearance.shortsColor, roughness: 0.78 });
 
-    // Waist/hip section: a squashed sphere forming the seat, ending around
-    // the hip joints (y ~1.80) so the crotch splits above the thighs.
+    // Waist/hip section: a rounded section forming the seat AND rising up to
+    // meet the jersey (closes the skin gap at the waist). shortsLength scales
+    // how tall it reaches.
     const shortsWaist = new THREE.Mesh(new THREE.SphereGeometry(0.19, 14, 12), shortsMat());
     shortsWaist.name = 'shorts-waist';
-    shortsWaist.scale.set(1.18, 0.62, 0.94);
-    shortsWaist.position.set(0, 0.0, 0);
+    shortsWaist.scale.set(1.18, 1.0, 0.94);
+    shortsWaist.position.set(0, 0.12, 0);
     shortsWaist.castShadow = true;
     shortsRoot.add(shortsWaist);
 
-    // Short legs: short capsules hanging from the hip line, ending well above
-    // the knees (~upper thigh) so both thighs stay visible below.
+    // Short legs: capsules hanging from the hip line, long enough to cover the
+    // upper thigh (shortLegLength scales them).
     for (const side of [-1, 1]) {
-      const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.088, 0.16, 6, 12), shortsMat());
+      const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.09, 0.3, 6, 12), shortsMat());
       leg.name = side < 0 ? 'shorts-left' : 'shorts-right';
       leg.position.set(side * 0.105, -0.06, 0);
       leg.castShadow = true;
@@ -2816,6 +3008,18 @@ export class Golfer {
     chest.geometry.translate(0, 0.62, 0);
     chest.scale.set(0.98, 1, 0.76);
     torso.add(chest);
+
+    // LOWER TORSO: the jersey bottom region that tucks into the belt/shorts.
+    // A separate mesh so its width/depth can be controlled independently of the
+    // chest above it.
+    const lowerTorso = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.185, 0.19, 0.34, 16),
+      createJerseyMaterial(this.appearance)
+    );
+    lowerTorso.name = 'lower-torso-part';
+    lowerTorso.position.set(0, 0.18, 0);
+    lowerTorso.castShadow = true;
+    torso.add(lowerTorso);
 
     const accentColor = this.appearance.accentColor ?? look.accent ?? DEFAULT_LOOK.accent;
     const collar = limb(0.1, 0.185, accentColor);
@@ -2831,6 +3035,51 @@ export class Golfer {
     placket.name = 'placket-part';
     placket.position.set(0, 0.52, 0.148);
     torso.add(placket);
+
+    // Jersey hem / belt: a ring at the waist plus a front buckle. Belt params
+    // (outfit) control band thickness/width/vertical position and buckle size.
+    // The belt uses the SECONDARY (shorts) brand color. Tube radius is driven
+    // by beltThickness via geometry so it actually thickens.
+    const beltT = this.appearance.outfit?.beltThickness ?? 1;
+    const beltW = this.appearance.outfit?.beltWidth ?? 1;
+    const beltV = this.appearance.outfit?.beltVertical ?? 0;
+    const buckleS = this.appearance.outfit?.beltBuckle ?? 1;
+    const beltColor = this.appearance.beltColor ?? this.appearance.shortsColor; // secondary slot default
+    const beltTightness = this.appearance.outfit?.beltTightness ?? 1;
+
+    // Belt: a root group carries the ring + buckle so both share width/vertical
+    // transforms and never detach. The ring is rotated flat; the buckle is a
+    // sibling (not a child of the ring) so it isn't tipped by the ring's rotation.
+    const beltRoot = new THREE.Group();
+    beltRoot.name = 'belt-root';
+    beltRoot.position.set(0, 0.04 + beltV, 0);
+    // Z-scale 1.0 (not flattened like the chest) so the belt ring sits PROUD of
+    // the shorts at the waist — belt in front of shorts.
+    beltRoot.scale.set(beltW, 1.0, 1);
+    torso.add(beltRoot);
+
+    // Ring radius scales with beltTightness (smaller = snugger to the body).
+    const hem = new THREE.Mesh(
+      new THREE.TorusGeometry(0.24 * beltTightness, 0.028 * beltT, 10, 20),
+      new THREE.MeshStandardMaterial({ color: beltColor, roughness: 0.8 })
+    );
+    hem.name = 'jersey-hem';
+    hem.rotation.x = Math.PI / 2;
+    hem.castShadow = true;
+    beltRoot.add(hem);
+
+    // Belt buckle: a small box at the front edge of the ring (radius 0.2 + tube).
+    const buckle = new THREE.Mesh(
+      new THREE.BoxGeometry(0.07 * buckleS, 0.05 * buckleS, 0.02),
+      new THREE.MeshStandardMaterial({
+        color: this.appearance.buckleColor ?? 0xc8ccd4,
+        roughness: 0.4,
+        metalness: 0.6,
+      })
+    );
+    buckle.name = 'belt-buckle';
+    buckle.position.set(0, 0, 0.24 * beltTightness + 0.028 * beltT);
+    beltRoot.add(buckle);
 
     const neck = new THREE.Mesh(
       new THREE.CylinderGeometry(0.062, 0.07, 0.1, 10),
@@ -2866,6 +3115,7 @@ export class Golfer {
       headScale: this.appearance.profile.headScale,
       jawWidth: this.appearance.profile.jawWidth,
       chinShape: this.appearance.profile.chinShape,
+      ...FACE_ADVANCED_DEFAULTS,
       ...this.appearance.face,
     };
     this.face = new Face(faceConfig);
@@ -2903,14 +3153,16 @@ export class Golfer {
       // torso (torso local top y=0.62, half-width ~0.19). Pivot sits AT torso
       // top, slightly inside the silhouette so the arm reads as attached.
       const shoulder = this.joint(shoulderName, torso, new THREE.Vector3(side * 0.32, 0.6, 0));
-      // Sleeve = compact cap AT the shoulder pivot (bridges torso -> upper arm),
-      // not a long capsule drooping down the arm.
+      // Jersey sleeve: a tube covering shoulder -> partway down the upper arm,
+      // using the jersey (shirt) material so it reads as the shirt's sleeve.
+      // sleeveLength (outfit) scales how far down the arm it reaches.
       const sleeve = new THREE.Mesh(
-        new THREE.SphereGeometry(0.1, 14, 12),
+        new THREE.CapsuleGeometry(0.1, 0.16, 6, 12),
         createJerseyMaterial(this.appearance)
       );
-      sleeve.scale.set(1.1, 0.8, 1.0);
-      sleeve.position.set(side * 0.02, -0.02, 0);
+      sleeve.name = isRight ? 'sleeve-right' : 'sleeve-left';
+      sleeve.geometry.translate(0, -0.1, 0);
+      sleeve.position.set(side * 0.02, 0, 0);
       sleeve.castShadow = true;
       shoulder.add(sleeve);
 
@@ -2993,12 +3245,14 @@ export class Golfer {
 
       const knee = this.joint(kneeName, hip, new THREE.Vector3(0, -0.5, 0));
       const calf = limb(0.32, 0.08, this.appearance.skinTone);
+      calf.name = isRight ? 'calf-right' : 'calf-left';
       knee.add(calf);
 
       const sock = new THREE.Mesh(
         new THREE.CylinderGeometry(0.08, 0.081, 0.16, 12),
         new THREE.MeshStandardMaterial({ color: 0xf2f4f8, roughness: 0.8 })
       );
+      sock.name = isRight ? 'sock-right' : 'sock-left';
       sock.position.y = -0.31;
       knee.add(sock);
 
@@ -3097,30 +3351,127 @@ export class Golfer {
       torso.scale.set(1, profile.torsoLength, 1.05 + (1 - profile.torsoTaper) * 0.4);
     }
 
+    // Chest shape: width (X) + depth (Z, affects the side view silhouette).
+    const chest = this.root.getObjectByName('torso-part');
+    if (chest) {
+      chest.scale.x = 0.98 * (profile.chestWidth ?? 1);
+      chest.scale.z = 0.76 * (profile.chestDepth ?? 1);
+    }
+    // Collar + placket follow the chest width so they stay aligned.
+    const collarMesh = this.root.getObjectByName('collar-part');
+    if (collarMesh) {
+      collarMesh.scale.x = 1.0 * (profile.chestWidth ?? 1);
+    }
+
+    // Lower torso (jersey bottom, tucked into belt/shorts): independent
+    // width (X) + depth (Z).
+    const lowerTorso = this.root.getObjectByName('lower-torso-part');
+    if (lowerTorso) {
+      lowerTorso.scale.set(profile.lowerTorsoWidth ?? 1, 1, profile.lowerTorsoDepth ?? 1);
+    }
+
+    // Waist: size scales the whole belt root (ring + buckle together) so the
+    // buckle never detaches. Thickness is handled by belt geometry at build.
+    const beltRoot = this.root.getObjectByName('belt-root');
+    if (beltRoot) {
+      const waist = profile.waistSize ?? 1;
+      beltRoot.scale.set((this.appearance.outfit?.beltWidth ?? 1) * waist, 1.0 * waist, 1);
+    }
+
     const head = this.joints.get('head');
     if (head) {
       head.scale.set(profile.headScale, profile.headScale, profile.headScale);
+      // Head vertical placement: move the head up/down for neck/torso fit.
+      head.position.y = 0.78 * (profile.headVertical ?? 1);
     }
 
     const neck = this.root.getObjectByName('neck-part');
     if (neck instanceof THREE.Mesh) {
       neck.scale.set(profile.neckWidth, profile.neckLength, profile.neckWidth);
+      neck.position.set(0, 0.74 * (profile.neckVertical ?? 1), profile.neckForward ?? 0);
     }
 
-    // Shorts follow the pelvis: widen/narrow the garment with hipWidth.
-    const shortsRoot = this.root.getObjectByName('shorts-root');
-    if (shortsRoot) {
-      shortsRoot.scale.set(profile.hipWidth, 1, profile.torsoTaper);
+    // Trapezius (neck→shoulder) dome: width spreads it across the shoulders,
+    // height thickens the neck base.
+    const trapezius = this.root.getObjectByName('trapezius-part');
+    if (trapezius instanceof THREE.Mesh) {
+      trapezius.scale.set(
+        1.9 * (profile.trapeziusWidth ?? 1),
+        0.55 * (profile.trapeziusHeight ?? 1),
+        0.9
+      );
     }
 
+    // Shoulder placement: In/Out moves the pivot toward/away from the torso
+    // centerline (baseline ±0.32); Vertical raises/lowers it (baseline y 0.6).
+    const shoulderInOut = profile.shoulderInOut ?? 1;
+    const shoulderVertical = profile.shoulderVertical ?? 1;
     const shoulderL = this.joints.get('shoulderL');
     const shoulderR = this.joints.get('shoulderR');
+    if (shoulderL) {
+      shoulderL.position.x = -0.32 * shoulderInOut;
+      shoulderL.position.y = 0.6 * shoulderVertical;
+    }
+    if (shoulderR) {
+      shoulderR.position.x = 0.32 * shoulderInOut;
+      shoulderR.position.y = 0.6 * shoulderVertical;
+    }
+
+    // Shorts follow the pelvis. hipWidth/torsoTaper still apply, and the
+    // dedicated shorts params scale the garment + each leg piece.
+    const shortsRoot = this.root.getObjectByName('shorts-root');
+    if (shortsRoot) {
+      // shortLegWidth scales the WHOLE garment (waist + both legs) radially —
+      // same scope as shortsForward moves. shortsWidth then fine-tunes the waist.
+      const legWidth = profile.shortLegWidth ?? 1;
+      shortsRoot.scale.set(
+        profile.hipWidth * (profile.shortsWidth ?? 1) * legWidth,
+        profile.shortsLength ?? 1,
+        profile.torsoTaper * legWidth * (profile.shortsDepth ?? 1)
+      );
+      // shortsForward shifts the WHOLE garment (waist + legs) toward the front.
+      shortsRoot.position.z = profile.shortsForward ?? 0;
+    }
+    const shortsWaist = this.root.getObjectByName('shorts-waist');
+    if (shortsWaist) {
+      const rise = profile.shortsRise ?? 1;
+      // shortsLength scales overall garment height; shortsRise lifts + stretches
+      // the waistband up the torso. Cap the rise so the waist closes the gap to
+      // the jersey but does not engulf the chest. As the waist rises it also
+      // deepens (front AND back, Z) so it wraps the torso.
+      const cappedRise = Math.min(rise, 1.6);
+      shortsWaist.scale.set(
+        1.18 * (profile.shortsWidth ?? 1),
+        1.0 * (profile.shortsLength ?? 1) * cappedRise,
+        0.94 * (1 + (cappedRise - 1) * 0.6) * 1.17
+      );
+      shortsWaist.position.y = 0.12 * cappedRise;
+    }
+    ['shorts-left', 'shorts-right'].forEach((name) => {
+      const leg = this.root.getObjectByName(name);
+      if (leg) {
+        // Only length here — width is applied to the whole shorts-root so it
+        // matches shortsForward's scope (waist + both legs).
+        leg.scale.set(1, profile.shortLegLength ?? 1, 1);
+      }
+    });
+
     if (shoulderL) {
       shoulderL.scale.set(profile.shoulderWidth, 1, 1);
     }
     if (shoulderR) {
       shoulderR.scale.set(profile.shoulderWidth, 1, 1);
     }
+
+    // Jersey sleeve: length scales down the arm (Y), width scales radially (X/Z).
+    const sleeveLength = this.appearance.outfit?.sleeveLength ?? 1;
+    const sleeveWidth = this.appearance.outfit?.sleeveWidth ?? 1;
+    ['sleeve-left', 'sleeve-right'].forEach((name) => {
+      const mesh = this.root.getObjectByName(name);
+      if (mesh) {
+        mesh.scale.set(sleeveWidth, sleeveLength, sleeveWidth);
+      }
+    });
 
     // Arm length: scale the whole arm chain's Y (elbow offset + segments) so both
     // arms lengthen/shorten together.
@@ -3184,6 +3535,26 @@ export class Golfer {
       const mesh = this.root.getObjectByName(name);
       if (mesh) {
         mesh.scale.set(1, thighLength, 1);
+      }
+    });
+
+    // Leg width (legTaper): scale thigh + calf radially (X/Z), preserving length.
+    const legTaper = profile.legTaper ?? 1;
+    ['thigh-left', 'thigh-right', 'calf-left', 'calf-right'].forEach((name) => {
+      const mesh = this.root.getObjectByName(name);
+      if (mesh) {
+        mesh.scale.x = legTaper;
+        mesh.scale.z = legTaper;
+      }
+    });
+
+    // Sock thickness: scale the sock cylinder radially.
+    const sockThickness = profile.sockThickness ?? 1;
+    ['sock-left', 'sock-right'].forEach((name) => {
+      const mesh = this.root.getObjectByName(name);
+      if (mesh) {
+        mesh.scale.x = sockThickness;
+        mesh.scale.z = sockThickness;
       }
     });
 

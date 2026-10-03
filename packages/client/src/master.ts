@@ -3,6 +3,7 @@
 //   Body Feature control -> GolferPose -> GolferPoseTarget -> Golfer rig.
 // The UI never directly mutates Three.js joints.
 import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Golfer, DEFAULT_GOLFER_APPEARANCE } from '@/rendering/Golfer';
 import { GolferPoseTarget, PoseLibrary, type GolferPose } from '@/rendering/avatar';
 import {
@@ -38,6 +39,21 @@ key.position.set(2, 4, 3);
 scene.add(key);
 
 const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
+
+// Free mouse orbit around the avatar. The Front/Left/Right/Back buttons still
+// snap to canonical views; dragging orbits freely. Orbit target is updated by
+// frameCamera so zoom/orbit stay centered on the golfer.
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.enableDamping = true;
+orbit.dampingFactor = 0.08;
+orbit.enablePan = false;
+orbit.minDistance = 2;
+orbit.maxDistance = 40;
+// frameCamera owns camera position when snapping to a preset view.
+let orbitDirty = false;
+orbit.addEventListener('start', () => {
+  orbitDirty = true;
+});
 
 const golfer = new Golfer({ ...DEFAULT_GOLFER_APPEARANCE });
 // Seed the uniform from resolved DEFAULT branding (no team assigned).
@@ -121,7 +137,15 @@ function markEdited() {
 // Push a session draft into the UI + golfer. Callers pass the session's own
 // draft, so the session state stays the source of truth.
 function applyBaselineDraft(d: MaleBaselineDraft) {
-  golfer.setAppearance(structuredClone(d.appearance));
+  // Merge the loaded profile over the CURRENT default profile so fields added
+  // after the draft was saved (e.g. shorts/sock) get their defaults instead of
+  // being dropped — otherwise their sliders reset and writes get clobbered.
+  const mergedAppearance = structuredClone(d.appearance);
+  mergedAppearance.profile = {
+    ...DEFAULT_GOLFER_APPEARANCE.profile,
+    ...mergedAppearance.profile,
+  };
+  golfer.setAppearance(mergedAppearance);
   Object.assign(draft, d.pose);
   poseSliders.forEach((sync) => sync());
   appearanceSliders.forEach((sync) => sync());
@@ -231,12 +255,19 @@ function frameCamera() {
   const dist = Math.max(distH, distW) * 1.3 + 1.2;
   const target = center.clone();
   target.y -= size.y * 0.08;
-  camera.position.set(
-    target.x + Math.sin(camYaw) * dist,
-    target.y,
-    target.z + Math.cos(camYaw) * dist
-  );
-  camera.lookAt(target);
+  // Keep the orbit target centered on the golfer so free mouse orbit/zoom
+  // pivot around the avatar.
+  orbit.target.copy(target);
+  // Only reposition the camera when snapping to a preset view (not while the
+  // user is freely orbiting).
+  if (!orbitDirty) {
+    camera.position.set(
+      target.x + Math.sin(camYaw) * dist,
+      target.y,
+      target.z + Math.cos(camYaw) * dist
+    );
+  }
+  orbit.update();
   const el = document.getElementById('camdebug');
   if (el) {
     el.textContent = `cam dist ${dist.toFixed(1)}  bounds h ${size.y.toFixed(2)}  centerY ${center.y.toFixed(2)}`;
@@ -257,6 +288,7 @@ views.forEach(([label, yaw]) => {
   b.classList.toggle('is-active', yaw === 0);
   b.addEventListener('click', () => {
     camYaw = yaw;
+    orbitDirty = false; // snap back to the preset view
     viewsEl.querySelectorAll('button').forEach((x) => x.classList.remove('is-active'));
     b.classList.add('is-active');
     frameCamera();
@@ -267,6 +299,7 @@ const resetView = document.createElement('button');
 resetView.textContent = 'Reset View';
 resetView.addEventListener('click', () => {
   camYaw = 0;
+  orbitDirty = false;
   viewsEl.querySelectorAll('button').forEach((x, i) => x.classList.toggle('is-active', i === 0));
   frameCamera();
 });
@@ -349,11 +382,18 @@ const featureLeft = document.getElementById('feature-left')!;
 const featureRight = document.getElementById('feature-right')!;
 
 // Change Look (appearance) editor in the RIGHT menu — edits the same golfer,
-// no separate preview.
-const appearancePanel = new AppearancePanel(featureRight, golfer, () => {
-  markEdited();
-  frameCamera();
-});
+// no separate preview. Master owns the authoritative pose draft (ownsPose=false);
+// after any appearance change rebuilds the rig, we re-apply the current draft.
+const appearancePanel = new AppearancePanel(
+  featureRight,
+  golfer,
+  () => {
+    applyDraft();
+    markEdited();
+    frameCamera();
+  },
+  false
+);
 
 function makeSection(
   host: HTMLElement,
@@ -398,6 +438,13 @@ function appearanceSlider(
     | 'hipWidth'
     | 'torsoLength'
     | 'torsoTaper'
+    | 'chestWidth'
+    | 'chestDepth'
+    | 'lowerTorsoWidth'
+    | 'lowerTorsoDepth'
+    | 'waistSize'
+    | 'waistThickness'
+    | 'headVertical'
     | 'armLength'
     | 'thighLength'
     | 'armThickness'
@@ -405,17 +452,26 @@ function appearanceSlider(
     | 'neckLength'
     | 'neckVertical'
     | 'neckForward'
+    | 'trapeziusWidth'
+    | 'trapeziusHeight'
+    | 'shoulderWidth'
+    | 'shoulderInOut'
+    | 'shoulderVertical'
     | 'handSize'
     | 'palmWidth'
     | 'palmLength'
     | 'palmDepth'
     | 'shortsWidth'
     | 'shortsLength'
+    | 'shortsRise'
+    | 'shortsForward'
+    | 'shortsDepth'
     | 'shortLegWidth'
     | 'shortLegLength'
     | 'footLength'
     | 'footWidth'
-    | 'footHeight',
+    | 'footHeight'
+    | 'sockThickness',
   min: number,
   max: number
 ) {
@@ -437,6 +493,9 @@ function appearanceSlider(
     out.textContent = v.toFixed(2);
     const profile = { ...golfer.appearance.profile, [key]: v };
     golfer.setAppearance({ ...golfer.appearance, profile });
+    // setAppearance rebuilds the rig, so re-apply the current pose offsets
+    // (e.g. raised arms) or they reset to neutral.
+    applyDraft();
     markEdited();
     frameCamera();
   });
@@ -673,30 +732,10 @@ makeSection(featureLeft, 'baselineDiag', 'Baseline Diagnostics', (c) => {
   c.append(pre, refreshBtn);
 });
 
-// Upper-body / head features -> LEFT menu
-makeSection(featureLeft, 'headPose', 'Head (Pose)', (c) => {
-  c.appendChild(
-    slider(
-      'Turn Left / Right',
-      () => draft.headYaw,
-      (v) => (draft.headYaw = v),
-      -80,
-      80
-    )
-  );
-  c.appendChild(
-    slider(
-      'Look Up / Down',
-      () => draft.headPitch,
-      (v) => (draft.headPitch = v),
-      -50,
-      50
-    )
-  );
-});
 // ---- Full anatomical Body Features (permanent organization) ----
 // HEAD
 makeSection(featureLeft, 'head', 'Head', (c) => {
+  c.appendChild(appearanceSlider('Head Up / Down', 'headVertical', 0.6, 1.4));
   c.appendChild(
     slider(
       'Turn Left / Right',
@@ -723,6 +762,13 @@ makeSection(featureLeft, 'neck', 'Neck', (c) => {
   c.appendChild(appearanceSlider('Neck Length', 'neckLength', 0.5, 1.8));
   c.appendChild(appearanceSlider('Neck Vertical', 'neckVertical', 0.7, 1.4));
   c.appendChild(appearanceSlider('Neck Forward / Back', 'neckForward', -0.08, 0.08));
+  const trapLabel = document.createElement('div');
+  trapLabel.className = 'ftitle';
+  trapLabel.textContent = 'Trapezius (Neck → Shoulder)';
+  trapLabel.style.marginTop = '12px';
+  c.appendChild(trapLabel);
+  c.appendChild(appearanceSlider('Trapezius Width', 'trapeziusWidth', 0.5, 1.8));
+  c.appendChild(appearanceSlider('Trapezius Height', 'trapeziusHeight', 0.0, 1.8));
 });
 
 // TORSO
@@ -733,8 +779,16 @@ makeSection(featureLeft, 'torso', 'Torso', (c) => {
   c.appendChild(propLabel);
   c.appendChild(appearanceSlider('Shorter / Taller', 'torsoLength', 0.3, 1.5));
   c.appendChild(appearanceSlider('Wide / Skinny', 'torsoTaper', 0.4, 1.4));
-  c.appendChild(appearanceSlider('Arm Length (Both)', 'armLength', 0.6, 1.6));
-  c.appendChild(appearanceSlider('Arm Thickness (Both)', 'armThickness', 0.5, 1.6));
+  c.appendChild(appearanceSlider('Chest Width', 'chestWidth', 0.6, 1.6));
+  c.appendChild(appearanceSlider('Chest Depth (Side)', 'chestDepth', 0.6, 1.6));
+  c.appendChild(appearanceSlider('Lower Torso Width', 'lowerTorsoWidth', 0.5, 1.8));
+  c.appendChild(appearanceSlider('Lower Torso Depth', 'lowerTorsoDepth', 0.5, 1.8));
+  c.appendChild(appearanceSlider('Waist Size', 'waistSize', 0.6, 1.6));
+  c.appendChild(appearanceSlider('Shoulder Width', 'shoulderWidth', 0.6, 1.6));
+  c.appendChild(appearanceSlider('Shoulders In / Out', 'shoulderInOut', 0.4, 1.5));
+  c.appendChild(appearanceSlider('Shoulders Up / Down', 'shoulderVertical', 0.6, 1.4));
+  c.appendChild(appearanceSlider('Arm Length (Both)', 'armLength', 0.3, 1.6));
+  c.appendChild(appearanceSlider('Arm Thickness (Both)', 'armThickness', 0.3, 1.6));
   const poseLabel = document.createElement('div');
   poseLabel.className = 'ftitle';
   poseLabel.textContent = 'Pose';
@@ -864,8 +918,6 @@ makeSection(featureLeft, 'leftLeg', 'Left Leg', (c) => {
     )
   );
   c.appendChild(comingSoonRow('Foot Direction'));
-  c.appendChild(appearanceSlider('Leg Length', 'legLength', 0.6, 1.5));
-  c.appendChild(appearanceSlider('Thigh Length (Hip to Knee)', 'thighLength', 0.6, 1.6));
 });
 
 // RIGHT LEG
@@ -899,7 +951,13 @@ makeSection(featureLeft, 'rightLeg', 'Right Leg', (c) => {
     )
   );
   c.appendChild(comingSoonRow('Foot Direction'));
-  c.appendChild(appearanceSlider('Leg Taper', 'legTaper', 0.5, 1.5));
+});
+
+// LEGS (PROPORTIONS) — both-legs baseline geometry, grouped together.
+makeSection(featureLeft, 'legsProp', 'Legs (Proportions)', (c) => {
+  c.appendChild(appearanceSlider('Leg Length', 'legLength', 0.3, 1.5));
+  c.appendChild(appearanceSlider('Thigh Length (Hip to Knee)', 'thighLength', 0.6, 1.6));
+  c.appendChild(appearanceSlider('Leg Width (Both)', 'legTaper', 0.4, 1.8));
   c.appendChild(appearanceSlider('Hip Width', 'hipWidth', 0.5, 1.5));
 });
 
@@ -925,10 +983,120 @@ makeSection(featureLeft, 'hands', 'Hands / Wrists', (c) => {
 
 // SHORTS / CLOTHING
 makeSection(featureLeft, 'shorts', 'Shorts / Clothing', (c) => {
-  c.appendChild(appearanceSlider('Shorts Width', 'shortsWidth', 0.6, 1.6));
-  c.appendChild(appearanceSlider('Shorts Length', 'shortsLength', 0.5, 1.8));
-  c.appendChild(appearanceSlider('Short Leg Width', 'shortLegWidth', 0.5, 1.8));
-  c.appendChild(appearanceSlider('Short Leg Length', 'shortLegLength', 0.5, 1.8));
+  const jerseyLabel = document.createElement('div');
+  jerseyLabel.className = 'ftitle';
+  jerseyLabel.textContent = 'Jersey';
+  c.appendChild(jerseyLabel);
+  // Jersey params live on appearance.outfit, not profile.
+  const outfitSlider = (
+    label: string,
+    key:
+      | 'sleeveLength'
+      | 'sleeveWidth'
+      | 'beltThickness'
+      | 'beltWidth'
+      | 'beltVertical'
+      | 'beltBuckle'
+      | 'beltTightness',
+    min: number,
+    max: number
+  ) => {
+    const row = document.createElement('label');
+    row.className = 'row';
+    const span = document.createElement('span');
+    span.textContent = label;
+    const out = document.createElement('output');
+    const get = () => golfer.appearance.outfit?.[key] ?? (key === 'beltVertical' ? 0 : 1);
+    out.textContent = get().toFixed(2);
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.min = String(min);
+    input.max = String(max);
+    input.step = '0.01';
+    input.value = String(get());
+    input.addEventListener('input', () => {
+      const v = Number(input.value);
+      out.textContent = v.toFixed(2);
+      golfer.setAppearance({
+        ...golfer.appearance,
+        outfit: { ...golfer.appearance.outfit, [key]: v },
+      });
+      applyDraft();
+      markEdited();
+      frameCamera();
+    });
+    row.append(span, out, input);
+    return row;
+  };
+  c.appendChild(outfitSlider('Sleeve Length', 'sleeveLength', 0.2, 2));
+  c.appendChild(outfitSlider('Sleeve Width', 'sleeveWidth', 0.5, 2));
+
+  const beltLabel = document.createElement('div');
+  beltLabel.className = 'ftitle';
+  beltLabel.textContent = 'Belt';
+  beltLabel.style.marginTop = '10px';
+  c.appendChild(beltLabel);
+  c.appendChild(outfitSlider('Belt Thickness', 'beltThickness', 0.3, 2.5));
+  c.appendChild(outfitSlider('Belt Width', 'beltWidth', 0.6, 1.6));
+  c.appendChild(outfitSlider('Belt Tightness', 'beltTightness', 0.6, 1.3));
+  c.appendChild(outfitSlider('Belt Vertical', 'beltVertical', -0.2, 0.2));
+  c.appendChild(outfitSlider('Buckle Size', 'beltBuckle', 0.3, 2));
+  // Belt color override (defaults to secondary/shorts color).
+  const beltColorRow = document.createElement('label');
+  beltColorRow.className = 'row';
+  beltColorRow.style.gridTemplateColumns = '1fr auto';
+  const beltColorSpan = document.createElement('span');
+  beltColorSpan.textContent = 'Belt Color';
+  const beltColorInput = document.createElement('input');
+  beltColorInput.type = 'color';
+  const currentBelt = golfer.appearance.beltColor ?? golfer.appearance.shortsColor;
+  beltColorInput.value = '#' + currentBelt.toString(16).padStart(6, '0');
+  beltColorInput.addEventListener('input', () => {
+    golfer.setAppearance({
+      ...golfer.appearance,
+      beltColor: Number.parseInt(beltColorInput.value.slice(1), 16),
+    });
+    applyDraft();
+    markEdited();
+    frameCamera();
+  });
+  beltColorRow.append(beltColorSpan, beltColorInput);
+  c.appendChild(beltColorRow);
+  // Buckle color override (defaults to metallic silver).
+  const buckleColorRow = document.createElement('label');
+  buckleColorRow.className = 'row';
+  buckleColorRow.style.gridTemplateColumns = '1fr auto';
+  const buckleColorSpan = document.createElement('span');
+  buckleColorSpan.textContent = 'Buckle Color';
+  const buckleColorInput = document.createElement('input');
+  buckleColorInput.type = 'color';
+  const currentBuckle = golfer.appearance.buckleColor ?? 0xc8ccd4;
+  buckleColorInput.value = '#' + currentBuckle.toString(16).padStart(6, '0');
+  buckleColorInput.addEventListener('input', () => {
+    golfer.setAppearance({
+      ...golfer.appearance,
+      buckleColor: Number.parseInt(buckleColorInput.value.slice(1), 16),
+    });
+    applyDraft();
+    markEdited();
+    frameCamera();
+  });
+  buckleColorRow.append(buckleColorSpan, buckleColorInput);
+  c.appendChild(buckleColorRow);
+
+  const shortsLabel = document.createElement('div');
+  shortsLabel.className = 'ftitle';
+  shortsLabel.textContent = 'Shorts';
+  shortsLabel.style.marginTop = '10px';
+  c.appendChild(shortsLabel);
+  c.appendChild(appearanceSlider('Shorts Width', 'shortsWidth', 0.6, 2.2));
+  c.appendChild(appearanceSlider('Shorts Length', 'shortsLength', 0.4, 2.2));
+  c.appendChild(appearanceSlider('Shorts Rise (Up Torso)', 'shortsRise', 0.5, 3));
+  c.appendChild(appearanceSlider('Shorts Forward / Back', 'shortsForward', -0.15, 0.15));
+  c.appendChild(appearanceSlider('Shorts Depth', 'shortsDepth', 0.2, 3));
+  c.appendChild(appearanceSlider('Short Leg Width', 'shortLegWidth', 0.5, 2.2));
+  c.appendChild(appearanceSlider('Short Leg Length', 'shortLegLength', 0.5, 2.2));
+  c.appendChild(appearanceSlider('Sock Thickness', 'sockThickness', 0.5, 1.8));
 });
 
 // FEET
@@ -1056,6 +1224,7 @@ makeSection(featureLeft, 'branding', 'Branding (Uniform)', (c) => {
 // ---- Render loop ----
 function tick() {
   golfer.root.updateMatrixWorld(true);
+  orbit.update(); // damping for free mouse orbit
   renderer.render(scene, camera);
   requestAnimationFrame(tick);
 }
