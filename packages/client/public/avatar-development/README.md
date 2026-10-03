@@ -85,7 +85,21 @@ interpolate between stages to animate.
   proves shoulder mechanics. Not where disc-golf poses are authored.
 
 > DIAGNOSTIC PAGES PROVE THE RIG. MASTER AUTHORS POSES. POSELIBRARY STORES
-> SEMANTIC POSES. ACTIONS SEQUENCE POSES. REFERENCE IMAGES GUIDE AUTHORING.
+> SEMANTIC POSES. ACTIONS SEQUENCE POSES.
+
+## Development baseline
+
+**MALE MASTER AVATAR IS THE CURRENT DEVELOPMENT BASELINE.** The existing male
+procedural Golfer on `/master` is the canonical development avatar. We use it to
+develop and validate the universal semantic rig, semantic controls, pose
+authoring, PoseLibrary, and actions.
+
+> **POSE DATA MUST REMAIN SEMANTIC AND AVATAR-INDEPENDENT WHERE PRACTICAL.**
+> A pose describes anatomy (`leftShoulder.abduction`), never gender-specific
+> mesh names. A future female avatar reuses the same semantic pose/action system
+> with appropriate appearance/body-geometry differences — we do NOT create
+> `maleBackhandReachBack` / `femaleBackhandReachBack`. The rig/controller
+> translates semantic anatomy into the appropriate geometry.
 
 ## Development roadmap
 
@@ -101,6 +115,7 @@ interpolate between stages to animate.
 10. Pose Saving / PoseLibrary
 11. Create disc-golf poses from reference images
 12. Sequence poses into Actions
+13. Female avatar compatibility (reuse the same semantic rig/pose/action system)
 
 ## Sample Copilot Prompt
 

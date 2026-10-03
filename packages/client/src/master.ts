@@ -189,23 +189,6 @@ section('rightLeg', 'Right Leg', (c) => comingSoon(c));
 section('hands', 'Hands / Wrists', (c) => comingSoon(c));
 section('disc', 'Disc', (c) => comingSoon(c));
 
-// ---- Reference image (local file drop) ----
-const refBody = document.getElementById('ref-body')!;
-const fileInput = document.createElement('input');
-fileInput.type = 'file';
-fileInput.accept = 'image/*';
-fileInput.style.display = 'none';
-fileInput.addEventListener('change', () => {
-  const file = fileInput.files?.[0];
-  if (!file) return;
-  const img = document.createElement('img');
-  img.src = URL.createObjectURL(file);
-  refBody.innerHTML = '';
-  refBody.appendChild(img);
-});
-refBody.addEventListener('click', () => fileInput.click());
-document.body.appendChild(fileInput);
-
 // ---- Render loop ----
 function tick() {
   golfer.root.updateMatrixWorld(true);

@@ -1,5 +1,10 @@
 # References
 
+> **Note:** Reference images are NOT part of the current `/master` workspace.
+> The Master avatar is developed from the male baseline without a reference
+> image. Reference images may still be useful later for authoring disc-golf
+> poses — this folder holds that future material.
+
 Place future reference material here:
 
 - screenshots
