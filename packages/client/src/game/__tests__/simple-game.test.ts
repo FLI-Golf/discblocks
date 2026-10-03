@@ -316,11 +316,23 @@ describe('Game Components', () => {
       container.querySelectorAll<HTMLButtonElement>('.appearance-header-orientation')
     );
 
-    expect(buttons.map((button) => button.textContent)).toEqual(['Front', 'Back']);
+    expect(buttons.map((button) => button.textContent)).toEqual(['Front', 'Left', 'Right', 'Back']);
 
-    buttons[1].click();
+    const face = (modal as any).isolatedFace as import('@/rendering/Golfer').Face;
     const preview = (modal as any).preview as Golfer;
-    expect(preview.root.rotation.y).toBeCloseTo(Math.PI, 5);
+
+    buttons[3].click(); // Back
+    expect(face.root.rotation.y).toBeCloseTo(Math.PI, 5);
+
+    buttons[1].click(); // Left
+    expect(face.root.rotation.y).toBeCloseTo(Math.PI / 2, 5);
+
+    buttons[2].click(); // Right
+    expect(face.root.rotation.y).toBeCloseTo(-Math.PI / 2, 5);
+
+    buttons[0].click(); // Front
+    expect(face.root.rotation.y).toBeCloseTo(0, 5);
+    expect(preview).toBeTruthy();
 
     modal.close(false);
     container.remove();
@@ -511,7 +523,7 @@ describe('Game Components', () => {
     const leftEyeBefore = leftEye.scale.clone();
     const rightEyeBefore = rightEye.scale.clone();
 
-    face.setConfig({ eyeSpacing: 0.2 });
+    face.setConfig({ eyeSize: 0.6 });
 
     expect(cheekLeft.scale.x).toBeCloseTo(cheekLeftBefore.x, 5);
     expect(cheekRight.scale.x).toBeCloseTo(cheekRightBefore.x, 5);
@@ -565,7 +577,10 @@ describe('Game Components', () => {
     const preview = (modal as any).preview as Golfer;
     const bounds = new THREE.Box3().setFromObject(preview.root);
     expect(bounds.isEmpty()).toBe(false);
-    expect(bounds.max.x - bounds.min.x).toBeGreaterThan(1.1);
+    // Full body is visible (arms hang at the sides in the corrected neutral pose,
+    // so width reflects shoulder width, not the old wide outstretched pose).
+    expect(bounds.max.x - bounds.min.x).toBeGreaterThan(0.8);
+    expect(bounds.max.y - bounds.min.y).toBeGreaterThan(1.5);
 
     modal.close(false);
     container.remove();
@@ -587,6 +602,10 @@ describe('Game Components', () => {
 
     const toggles = Array.from(
       modal['root'].querySelectorAll<HTMLInputElement>('.face-debug-control input[type="checkbox"]')
+    ).filter(
+      (input) =>
+        input.getAttribute('aria-label') !== 'Part transforms' &&
+        input.getAttribute('aria-label') !== 'Face Guides'
     );
 
     expect(toggles.length).toBeGreaterThanOrEqual(7);
@@ -615,19 +634,36 @@ describe('Game Components', () => {
     const rightEye = face.root.getObjectByName('eye-white-right') as THREE.Mesh;
     const leftEyelid = face.root.getObjectByName('eyelid-left') as THREE.Mesh;
     const rightEyelid = face.root.getObjectByName('eyelid-right') as THREE.Mesh;
+    const leftIris = face.root.getObjectByName('iris-left') as THREE.Mesh;
+    const rightIris = face.root.getObjectByName('iris-right') as THREE.Mesh;
     const jaw = face.root.getObjectByName('jaw-part') as THREE.Mesh;
 
-    const initialLeftX = leftEye.position.x;
-    const initialRightX = rightEye.position.x;
+    const initialWhiteScaleX = leftEye.scale.x;
+    const initialIrisScaleX = leftIris.scale.x;
+    const initialEyelidScaleX = leftEyelid.scale.x;
     const initialJawScaleX = jaw.scale.x;
 
-    face.setConfig({ eyeSpacing: 0.25, jawWidth: 1.4, chinShape: 1.35, nose: 0.8, mouth: 0.9 });
+    face.setConfig({ eyeSize: 0.6, jawWidth: 1.4, chinShape: 1.35, nose: 0.8, mouth: 0.9 });
 
-    expect(leftEye.position.x).toBeLessThan(initialLeftX);
-    expect(rightEye.position.x).toBeGreaterThan(initialRightX);
-    expect(leftEyelid.position.x).toBeLessThan(initialLeftX);
-    expect(rightEyelid.position.x).toBeGreaterThan(initialRightX);
+    expect(leftEye.scale.x).toBeLessThan(initialWhiteScaleX);
+    expect(rightEye.scale.x).toBeLessThan(initialWhiteScaleX);
+    expect(leftIris.scale.x).toBeLessThan(initialIrisScaleX);
+    expect(rightIris.scale.x).toBeLessThan(initialIrisScaleX);
+    expect(leftEyelid.scale.x).toBeLessThan(initialEyelidScaleX);
+    expect(rightEyelid.scale.x).toBeLessThan(initialEyelidScaleX);
+    expect(leftIris.scale.x / leftEye.scale.x).toBeCloseTo(
+      initialIrisScaleX / initialWhiteScaleX,
+      5
+    );
+    expect(leftIris.position.x).toBeCloseTo(leftEye.position.x, 5);
+    expect(rightIris.position.x).toBeCloseTo(rightEye.position.x, 5);
+    expect(Math.abs(leftEye.position.x)).toBeCloseTo(Math.abs(rightEye.position.x), 5);
     expect(jaw.scale.x).toBeGreaterThan(initialJawScaleX);
+
+    const xAfterSizeOnly = leftEye.position.x;
+    face.setConfig({ eyeSpacing: 0.3 });
+    expect(leftEye.position.x).not.toBeCloseTo(xAfterSizeOnly, 5);
+    expect(leftEye.scale.x).toBeLessThan(initialWhiteScaleX);
     expect(face.root.getObjectByName('nose-part')).not.toBeNull();
     expect(face.root.getObjectByName('mouth-part')).not.toBeNull();
   });
@@ -743,7 +779,118 @@ describe('Game Components', () => {
         .querySelector('.appearance-mode-toggle [data-mode="face"]')
         ?.classList.contains('is-active')
     ).toBe(true);
-    expect(document.querySelector('.appearance-control')?.textContent).toContain('Skin tone');
+    expect(document.querySelector('.appearance-control input[data-key="skinTone"]')).not.toBeNull();
+  });
+
+  it('should render expandable face sections and keep the face preview mounted while toggling', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    const modal = new AppearanceModal(container, {
+      playerName: 'Face Sections Test',
+      mode: 'face',
+      initialAppearance: DEFAULT_GOLFER_APPEARANCE,
+      initialAccessories: {},
+      onApply: () => undefined,
+    });
+
+    const sections = Array.from(container.querySelectorAll<HTMLElement>('.face-section')).map(
+      (section) => section.dataset.section
+    );
+    expect(sections).toEqual([
+      'head',
+      'cheeks',
+      'jaw',
+      'chin',
+      'eyes',
+      'nose',
+      'mouth',
+      'brows',
+      'facialHair',
+      'hair',
+    ]);
+
+    // All sections must start collapsed (content hidden).
+    container.querySelectorAll<HTMLElement>('.face-section-content').forEach((content) => {
+      expect(content.hidden).toBe(true);
+    });
+
+    const faceRoot = (modal as any).isolatedFaceRoot as THREE.Group;
+    const jawHeader = container.querySelector(
+      '.face-section[data-section="jaw"] .face-section-header'
+    ) as HTMLButtonElement;
+    jawHeader.click();
+
+    const jawContent = container.querySelector(
+      '.face-section[data-section="jaw"] .face-section-content'
+    ) as HTMLElement;
+    expect(jawContent.hidden).toBe(false);
+    expect((modal as any).isolatedFaceRoot).toBe(faceRoot);
+
+    const eyesHeader = container.querySelector(
+      '.face-section[data-section="eyes"] .face-section-header'
+    ) as HTMLButtonElement;
+    eyesHeader.click();
+
+    expect(jawContent.hidden).toBe(true);
+    const eyesContent = container.querySelector(
+      '.face-section[data-section="eyes"] .face-section-content'
+    ) as HTMLElement;
+    expect(eyesContent.hidden).toBe(false);
+
+    // Clicking the open section header collapses it again.
+    eyesHeader.click();
+    expect(eyesContent.hidden).toBe(true);
+
+    // Accordion interaction must not move the camera or touch appearance.
+    const camera = (modal as any).camera as THREE.PerspectiveCamera;
+    const camPos = camera.position.clone();
+    const jawBefore = (modal as any).draft.profile.jawWidth;
+    jawHeader.click();
+    expect(camera.position.x).toBeCloseTo(camPos.x, 5);
+    expect(camera.position.y).toBeCloseTo(camPos.y, 5);
+    expect(camera.position.z).toBeCloseTo(camPos.z, 5);
+    expect((modal as any).draft.profile.jawWidth).toBeCloseTo(jawBefore, 5);
+
+    const jawInput = jawContent.querySelector('input[type="range"]') as HTMLInputElement;
+    expect(jawInput.dataset.key).toBe('jawWidth');
+    const before = jawInput.value;
+    jawInput.value = '1.4';
+    jawInput.dispatchEvent(new Event('input'));
+    expect((modal as any).draft.profile.jawWidth).toBeCloseTo(1.4, 5);
+    jawInput.value = before;
+    jawInput.dispatchEvent(new Event('input'));
+
+    modal.close(false);
+    container.remove();
+  });
+
+  it('should make Reset View camera-only and leave appearance unchanged', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    const modal = new AppearanceModal(container, {
+      playerName: 'Reset View Test',
+      mode: 'face',
+      initialAppearance: DEFAULT_GOLFER_APPEARANCE,
+      initialAccessories: {},
+      onApply: () => undefined,
+    });
+
+    const camera = (modal as any).camera as THREE.PerspectiveCamera;
+    (modal as any).draft.profile.jawWidth = 1.5;
+    camera.position.set(9, 9, 9);
+
+    const resetViewBtn = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Reset View'
+    ) as HTMLButtonElement;
+    resetViewBtn.click();
+
+    expect(camera.position.x).not.toBeCloseTo(9, 1);
+    expect((modal as any).draft.profile.jawWidth).toBeCloseTo(1.5, 5);
+
+    modal.close(false);
+    container.remove();
   });
 
   it('should isolate the face and hide the body and shoulders in face mode', () => {

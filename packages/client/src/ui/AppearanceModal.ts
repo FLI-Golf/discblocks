@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {
   BODY_PROFILES,
   DEFAULT_GOLFER_APPEARANCE,
+  FACE_ADVANCED_DEFAULTS,
   FACE_PARAMETER_LIMITS,
   FACE_PRESETS,
   Face,
@@ -10,6 +11,7 @@ import {
   printSceneGraph,
   type AccessorySlot,
   type BodyProfileId,
+  type FaceAdvancedKey,
   type FacePresetId,
   type GolferAppearance,
   type HairStyle,
@@ -17,6 +19,37 @@ import {
 
 export type AppearanceModalMode = 'face' | 'look';
 export type FacePreviewOrientation = 'front' | 'back' | 'right' | 'left';
+
+type ExpandableFaceSectionId =
+  'head' | 'cheeks' | 'jaw' | 'chin' | 'eyes' | 'nose' | 'mouth' | 'brows' | 'facialHair' | 'hair';
+
+type MacroSliderKey =
+  | 'headScale'
+  | 'jawWidth'
+  | 'chinShape'
+  | 'brow'
+  | 'nose'
+  | 'eyeSpacing'
+  | 'eyeSize'
+  | 'mouth'
+  | 'beard'
+  | 'stubble'
+  | 'shoulderWidth'
+  | 'torsoLength'
+  | 'neckWidth'
+  | 'neckLength'
+  | 'torsoTaper'
+  | 'hipWidth'
+  | 'armThickness'
+  | 'legLength'
+  | 'legTaper'
+  | 'sleeveLength'
+  | 'collarHeight'
+  | 'shirtFit'
+  | 'shortsLength'
+  | 'pantsFit';
+
+type NumericSliderKey = MacroSliderKey | FaceAdvancedKey;
 
 export interface AppearanceModalOptions {
   playerName: string;
@@ -70,8 +103,13 @@ export class AppearanceModal {
   private readonly initialAppearance: GolferAppearance;
   private readonly initialAccessories: Partial<Record<AccessorySlot, boolean>>;
   private readonly restoreFocus: HTMLElement | null;
+  private faceGuidesEnabled = false;
+  private faceGuides?: HTMLDivElement;
+  private editingLabel?: HTMLDivElement;
   private draft: GolferAppearance;
   private accessories: Partial<Record<AccessorySlot, boolean>>;
+  private expandedFaceSection: ExpandableFaceSectionId | null = null;
+  private partDiagnosticsEnabled = false;
   private animationId = 0;
 
   constructor(container: HTMLElement, options: AppearanceModalOptions) {
@@ -298,6 +336,21 @@ export class AppearanceModal {
     renderCanvas.className = 'appearance-preview-canvas';
     this.previewHost.appendChild(renderCanvas);
 
+    this.editingLabel = document.createElement('div');
+    this.editingLabel.className = 'appearance-editing-label';
+    this.editingLabel.hidden = true;
+    this.previewHost.appendChild(this.editingLabel);
+
+    this.faceGuides = document.createElement('div');
+    this.faceGuides.className = 'appearance-face-guides';
+    this.faceGuides.hidden = true;
+    const vLine = document.createElement('div');
+    vLine.className = 'face-guide face-guide-v';
+    const hLine = document.createElement('div');
+    hLine.className = 'face-guide face-guide-h';
+    this.faceGuides.append(vLine, hLine);
+    this.previewHost.appendChild(this.faceGuides);
+
     let probeCanvas: HTMLCanvasElement | null = null;
     try {
       probeCanvas = document.createElement('canvas');
@@ -340,12 +393,7 @@ export class AppearanceModal {
       headScale: DEFAULT_GOLFER_APPEARANCE.profile.headScale,
       jawWidth: DEFAULT_GOLFER_APPEARANCE.profile.jawWidth,
       chinShape: DEFAULT_GOLFER_APPEARANCE.profile.chinShape,
-      brow: DEFAULT_GOLFER_APPEARANCE.face.brow,
-      nose: DEFAULT_GOLFER_APPEARANCE.face.nose,
-      eyeSpacing: DEFAULT_GOLFER_APPEARANCE.face.eyeSpacing,
-      mouth: DEFAULT_GOLFER_APPEARANCE.face.mouth,
-      beard: DEFAULT_GOLFER_APPEARANCE.face.beard,
-      stubble: DEFAULT_GOLFER_APPEARANCE.face.stubble,
+      ...DEFAULT_GOLFER_APPEARANCE.face,
     });
     this.isolatedFaceRoot = this.isolatedFace.root;
     this.isolatedFaceRoot.visible = false;
@@ -430,6 +478,40 @@ export class AppearanceModal {
       content.appendChild(row);
     });
 
+    if (import.meta.env.DEV) {
+      const diagRow = document.createElement('label');
+      diagRow.className = 'face-debug-control';
+      const diagText = document.createElement('span');
+      diagText.textContent = 'Part transforms';
+      const diagInput = document.createElement('input');
+      diagInput.type = 'checkbox';
+      diagInput.checked = false;
+      diagInput.setAttribute('aria-label', 'Part transforms');
+      diagInput.addEventListener('change', () => {
+        this.partDiagnosticsEnabled = diagInput.checked;
+        if (diagInput.checked) {
+          this.logExpandedPartTransforms();
+        }
+      });
+      diagRow.append(diagText, diagInput);
+      content.appendChild(diagRow);
+
+      const guidesRow = document.createElement('label');
+      guidesRow.className = 'face-debug-control';
+      const guidesText = document.createElement('span');
+      guidesText.textContent = 'Face Guides';
+      const guidesInput = document.createElement('input');
+      guidesInput.type = 'checkbox';
+      guidesInput.checked = false;
+      guidesInput.setAttribute('aria-label', 'Face Guides');
+      guidesInput.addEventListener('change', () => {
+        this.faceGuidesEnabled = guidesInput.checked;
+        this.updateFaceGuidesVisibility();
+      });
+      guidesRow.append(guidesText, guidesInput);
+      content.appendChild(guidesRow);
+    }
+
     toggle.addEventListener('click', () => {
       const collapsed = panel.classList.toggle('is-collapsed');
       content.hidden = collapsed;
@@ -442,77 +524,489 @@ export class AppearanceModal {
     return panel;
   }
 
+  private faceGroupHeading(label: string): HTMLDivElement {
+    const heading = document.createElement('div');
+    heading.className = 'appearance-face-group-heading';
+    heading.textContent = label;
+    return heading;
+  }
+
+  private faceSection(
+    id: ExpandableFaceSectionId,
+    title: string,
+    options: {
+      summary?: string;
+      buildContent?: (container: HTMLElement) => void;
+    } = {}
+  ): HTMLDivElement {
+    const section = document.createElement('div');
+    section.className = 'face-section';
+    section.dataset.section = id;
+
+    const header = document.createElement('button');
+    header.type = 'button';
+    header.className = 'face-section-header';
+    header.setAttribute('aria-expanded', String(this.expandedFaceSection === id));
+
+    const titleEl = document.createElement('span');
+    titleEl.className = 'face-section-title';
+    titleEl.textContent = title;
+
+    const summary = document.createElement('span');
+    summary.className = 'face-section-summary';
+    if (options.summary !== undefined) {
+      summary.textContent = options.summary;
+    }
+
+    const chevron = document.createElement('span');
+    chevron.className = 'face-section-chevron';
+    chevron.textContent = this.expandedFaceSection === id ? '▾' : '▸';
+
+    header.append(titleEl, summary, chevron);
+    section.appendChild(header);
+
+    if (options.buildContent) {
+      const content = document.createElement('div');
+      content.className = 'face-section-content';
+      content.hidden = this.expandedFaceSection !== id;
+      options.buildContent(content);
+      section.appendChild(content);
+    }
+
+    header.addEventListener('click', () => {
+      this.expandedFaceSection = this.expandedFaceSection === id ? null : id;
+      this.refreshFaceSections();
+      this.logExpandedPartTransforms();
+      this.updateEditingLabel();
+    });
+
+    return section;
+  }
+
+  private logExpandedPartTransforms() {
+    if (!this.partDiagnosticsEnabled || !this.expandedFaceSection) {
+      return;
+    }
+    const partNames: Record<ExpandableFaceSectionId, string[]> = {
+      head: ['head-part'],
+      cheeks: ['cheek-left', 'cheek-right'],
+      jaw: ['jaw-part'],
+      chin: ['jaw-part'],
+      eyes: ['eye-white-left', 'eye-white-right', 'iris-left', 'iris-right'],
+      nose: ['nose-part'],
+      mouth: ['mouth-part'],
+      brows: ['brow-left', 'brow-right'],
+      facialHair: ['beard-part', 'stubble-part'],
+      hair: ['hair-root'],
+    };
+    const names = partNames[this.expandedFaceSection] ?? [];
+    const report: Record<string, unknown> = {};
+    names.forEach((name) => {
+      const obj = this.isolatedFace.root.getObjectByName(name);
+      if (obj) {
+        report[name] = {
+          position: obj.position.toArray().map((v) => Number(v.toFixed(4))),
+          scale: obj.scale.toArray().map((v) => Number(v.toFixed(4))),
+          rotation: [obj.rotation.x, obj.rotation.y, obj.rotation.z].map((v) =>
+            Number(v.toFixed(4))
+          ),
+        };
+      }
+    });
+    console.info(`[PART TRANSFORMS] ${this.expandedFaceSection}`, report);
+  }
+
+  private updateEditingLabel() {
+    if (!this.editingLabel) {
+      return;
+    }
+    if (this.view === 'face' && this.expandedFaceSection) {
+      const name =
+        this.expandedFaceSection.charAt(0).toUpperCase() + this.expandedFaceSection.slice(1);
+      this.editingLabel.textContent = `Editing: ${name}`;
+      this.editingLabel.hidden = false;
+    } else {
+      this.editingLabel.hidden = true;
+    }
+  }
+
+  private updateFaceGuidesVisibility() {
+    if (this.faceGuides) {
+      this.faceGuides.hidden = !(this.faceGuidesEnabled && this.view === 'face');
+    }
+  }
+
+  private resetFaceSection(keys: Array<NumericSliderKey | 'hairStyle' | 'hairColor'>) {
+    const nextFace = { ...(this.draft.face ?? FACE_PRESETS[this.draft.facePreset ?? 'male']) };
+    const nextProfile = {
+      ...(this.draft.profile ?? BODY_PROFILES[this.draft.bodyProfile ?? 'athleticMale']),
+    };
+
+    keys.forEach((key) => {
+      if (key === 'hairStyle') {
+        this.draft.hairStyle = FACE_PRESETS.male.hairStyle;
+        return;
+      }
+      if (key === 'hairColor') {
+        this.draft.hairColor = FACE_PRESETS.male.hairColor;
+        return;
+      }
+      if (key in FACE_ADVANCED_DEFAULTS) {
+        (nextFace as Record<string, number>)[key] = FACE_ADVANCED_DEFAULTS[key as FaceAdvancedKey];
+        return;
+      }
+      if (key === 'headScale') {
+        nextProfile.headScale = FACE_PARAMETER_LIMITS.headScale.default;
+      } else if (key === 'jawWidth') {
+        nextProfile.jawWidth = FACE_PARAMETER_LIMITS.jawWidth.default;
+      } else if (key === 'chinShape') {
+        nextProfile.chinShape = FACE_PARAMETER_LIMITS.chinShape.default;
+      } else if (
+        key === 'brow' ||
+        key === 'nose' ||
+        key === 'eyeSpacing' ||
+        key === 'eyeSize' ||
+        key === 'mouth' ||
+        key === 'beard' ||
+        key === 'stubble'
+      ) {
+        (nextFace as Record<string, number>)[key] =
+          FACE_PARAMETER_LIMITS[key as keyof typeof FACE_PARAMETER_LIMITS].default;
+      }
+    });
+
+    this.draft.face = nextFace;
+    this.draft.profile = nextProfile;
+    this.preview.setAppearance(this.draft);
+    this.syncFaceModelFromDraft();
+    this.syncDraftControls();
+    this.resetView();
+  }
+
+  private refreshFaceSections() {
+    this.controlsWrap.querySelectorAll<HTMLElement>('.face-section').forEach((section) => {
+      const id = section.dataset.section as ExpandableFaceSectionId | undefined;
+      const isOpen = id !== undefined && id === this.expandedFaceSection;
+      const content = section.querySelector<HTMLElement>('.face-section-content');
+      if (content) {
+        content.hidden = !isOpen;
+      }
+      const chevron = section.querySelector<HTMLElement>('.face-section-chevron');
+      if (chevron) {
+        chevron.textContent = isOpen ? '▾' : '▸';
+      }
+      const header = section.querySelector<HTMLElement>('.face-section-header');
+      header?.setAttribute('aria-expanded', String(isOpen));
+    });
+  }
+
   private buildControls(): HTMLElement {
     const panel = document.createElement('div');
     panel.className = 'appearance-control-groups';
 
     if (this.view === 'face') {
+      const formatValue = (value: number) => value.toFixed(2);
+      const profile = this.draft.profile ?? BODY_PROFILES[this.draft.bodyProfile ?? 'athleticMale'];
+      const face = this.draft.face ?? FACE_PRESETS[this.draft.facePreset ?? 'male'];
+      const adv = (key: FaceAdvancedKey) =>
+        (face as Record<string, number | undefined>)[key] ?? FACE_ADVANCED_DEFAULTS[key];
+
+      const advScale = (label: string, key: FaceAdvancedKey) =>
+        this.sliderRow(label, key, 0.5, 1.5, 0.01);
+      const advPos = (label: string, key: FaceAdvancedKey) =>
+        this.sliderRow(label, key, -0.1, 0.1, 0.005);
+      const resetButton = (
+        label: string,
+        keys: Array<NumericSliderKey | 'hairStyle' | 'hairColor'>
+      ) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'appearance-section-reset';
+        button.textContent = label;
+        button.addEventListener('click', () => this.resetFaceSection(keys));
+        return button;
+      };
+
       panel.append(
-        this.colorRow('Skin tone', 'skinTone'),
-        this.colorRow('Hair color', 'hairColor'),
-        this.sliderRow(
-          'Head',
-          'headScale',
-          FACE_PARAMETER_LIMITS.headScale.min,
-          FACE_PARAMETER_LIMITS.headScale.max,
-          FACE_PARAMETER_LIMITS.headScale.step
-        ),
-        this.sliderRow(
-          'Jaw',
-          'jawWidth',
-          FACE_PARAMETER_LIMITS.jawWidth.min,
-          FACE_PARAMETER_LIMITS.jawWidth.max,
-          FACE_PARAMETER_LIMITS.jawWidth.step
-        ),
-        this.sliderRow(
-          'Chin',
-          'chinShape',
-          FACE_PARAMETER_LIMITS.chinShape.min,
-          FACE_PARAMETER_LIMITS.chinShape.max,
-          FACE_PARAMETER_LIMITS.chinShape.step
-        ),
-        this.sliderRow(
-          'Brows',
-          'brow',
-          FACE_PARAMETER_LIMITS.brow.min,
-          FACE_PARAMETER_LIMITS.brow.max,
-          FACE_PARAMETER_LIMITS.brow.step
-        ),
-        this.sliderRow(
-          'Nose',
-          'nose',
-          FACE_PARAMETER_LIMITS.nose.min,
-          FACE_PARAMETER_LIMITS.nose.max,
-          FACE_PARAMETER_LIMITS.nose.step
-        ),
-        this.sliderRow(
-          'Eyes',
-          'eyeSpacing',
-          FACE_PARAMETER_LIMITS.eyeSpacing.min,
-          FACE_PARAMETER_LIMITS.eyeSpacing.max,
-          FACE_PARAMETER_LIMITS.eyeSpacing.step
-        ),
-        this.sliderRow(
-          'Mouth',
-          'mouth',
-          FACE_PARAMETER_LIMITS.mouth.min,
-          FACE_PARAMETER_LIMITS.mouth.max,
-          FACE_PARAMETER_LIMITS.mouth.step
-        ),
-        this.sliderRow(
-          'Beard',
-          'beard',
-          FACE_PARAMETER_LIMITS.beard.min,
-          FACE_PARAMETER_LIMITS.beard.max,
-          FACE_PARAMETER_LIMITS.beard.step
-        ),
-        this.sliderRow(
-          'Stubble',
-          'stubble',
-          FACE_PARAMETER_LIMITS.stubble.min,
-          FACE_PARAMETER_LIMITS.stubble.max,
-          FACE_PARAMETER_LIMITS.stubble.step
-        )
+        this.faceGroupHeading('Face Shape'),
+        this.faceSection('head', 'Head', {
+          summary: formatValue(profile.headScale ?? FACE_PARAMETER_LIMITS.headScale.default),
+          buildContent: (container) => {
+            container.append(
+              this.sliderRow(
+                'Scale',
+                'headScale',
+                FACE_PARAMETER_LIMITS.headScale.min,
+                FACE_PARAMETER_LIMITS.headScale.max,
+                FACE_PARAMETER_LIMITS.headScale.step
+              ),
+              advScale('Width', 'headWidth'),
+              advScale('Height', 'headHeight'),
+              advScale('Depth', 'headDepth'),
+              advPos('Vertical', 'headPositionY'),
+              advPos('Forward / Back', 'headPositionZ'),
+              resetButton('Reset Head', [
+                'headScale',
+                'headWidth',
+                'headHeight',
+                'headDepth',
+                'headPositionY',
+                'headPositionZ',
+              ])
+            );
+          },
+        }),
+        this.faceSection('cheeks', 'Cheeks', {
+          summary: formatValue(adv('cheekSize')),
+          buildContent: (container) => {
+            container.append(
+              advScale('Size', 'cheekSize'),
+              advScale('Width', 'cheekWidth'),
+              advScale('Height', 'cheekHeight'),
+              advScale('Depth', 'cheekDepth'),
+              advScale('Spacing', 'cheekSpacing'),
+              advPos('Vertical', 'cheekPositionY'),
+              advPos('Forward / Back', 'cheekPositionZ'),
+              resetButton('Reset Cheeks', [
+                'cheekSize',
+                'cheekWidth',
+                'cheekHeight',
+                'cheekDepth',
+                'cheekSpacing',
+                'cheekPositionY',
+                'cheekPositionZ',
+              ])
+            );
+          },
+        }),
+        this.faceSection('jaw', 'Jaw', {
+          summary: formatValue(profile.jawWidth ?? FACE_PARAMETER_LIMITS.jawWidth.default),
+          buildContent: (container) => {
+            container.append(
+              this.sliderRow(
+                'Main',
+                'jawWidth',
+                FACE_PARAMETER_LIMITS.jawWidth.min,
+                FACE_PARAMETER_LIMITS.jawWidth.max,
+                FACE_PARAMETER_LIMITS.jawWidth.step
+              ),
+              advScale('Height', 'jawHeight'),
+              advScale('Depth', 'jawDepth'),
+              advPos('Vertical', 'jawPositionY'),
+              advPos('Forward / Back', 'jawPositionZ'),
+              resetButton('Reset Jaw', [
+                'jawWidth',
+                'jawHeight',
+                'jawDepth',
+                'jawPositionY',
+                'jawPositionZ',
+              ])
+            );
+          },
+        }),
+        this.faceSection('chin', 'Chin', {
+          summary: formatValue(profile.chinShape ?? FACE_PARAMETER_LIMITS.chinShape.default),
+          buildContent: (container) => {
+            container.append(
+              this.sliderRow(
+                'Prominence',
+                'chinShape',
+                FACE_PARAMETER_LIMITS.chinShape.min,
+                FACE_PARAMETER_LIMITS.chinShape.max,
+                FACE_PARAMETER_LIMITS.chinShape.step
+              ),
+              advScale('Size', 'chinSize'),
+              advScale('Width', 'chinWidth'),
+              advScale('Height', 'chinHeight'),
+              advScale('Depth', 'chinDepth'),
+              advPos('Vertical', 'chinPositionY'),
+              advPos('Forward / Back', 'chinPositionZ'),
+              resetButton('Reset Chin', [
+                'chinShape',
+                'chinSize',
+                'chinWidth',
+                'chinHeight',
+                'chinDepth',
+                'chinPositionY',
+                'chinPositionZ',
+              ])
+            );
+          },
+        }),
+        this.faceGroupHeading('Features'),
+        this.faceSection('eyes', 'Eyes', {
+          summary: formatValue(face.eyeSize ?? FACE_PARAMETER_LIMITS.eyeSize.default),
+          buildContent: (container) => {
+            container.append(
+              this.sliderRow(
+                'Size',
+                'eyeSize',
+                FACE_PARAMETER_LIMITS.eyeSize.min,
+                FACE_PARAMETER_LIMITS.eyeSize.max,
+                FACE_PARAMETER_LIMITS.eyeSize.step
+              ),
+              advScale('Width', 'eyeWidth'),
+              advScale('Height', 'eyeHeight'),
+              advScale('Depth', 'eyeDepth'),
+              this.sliderRow(
+                'Spacing',
+                'eyeSpacing',
+                FACE_PARAMETER_LIMITS.eyeSpacing.min,
+                FACE_PARAMETER_LIMITS.eyeSpacing.max,
+                FACE_PARAMETER_LIMITS.eyeSpacing.step
+              ),
+              advPos('Vertical', 'eyePositionY'),
+              advPos('Forward / Back', 'eyePositionZ'),
+              resetButton('Reset Eyes', [
+                'eyeSize',
+                'eyeWidth',
+                'eyeHeight',
+                'eyeDepth',
+                'eyeSpacing',
+                'eyePositionY',
+                'eyePositionZ',
+              ])
+            );
+          },
+        }),
+        this.faceSection('nose', 'Nose', {
+          summary: formatValue(face.nose ?? FACE_PARAMETER_LIMITS.nose.default),
+          buildContent: (container) => {
+            container.append(
+              this.sliderRow(
+                'Size',
+                'nose',
+                FACE_PARAMETER_LIMITS.nose.min,
+                FACE_PARAMETER_LIMITS.nose.max,
+                FACE_PARAMETER_LIMITS.nose.step
+              ),
+              advScale('Width', 'noseWidth'),
+              advScale('Height', 'noseHeight'),
+              advScale('Depth', 'noseDepth'),
+              advPos('Vertical', 'nosePositionY'),
+              advPos('Forward / Back', 'nosePositionZ'),
+              resetButton('Reset Nose', [
+                'nose',
+                'noseWidth',
+                'noseHeight',
+                'noseDepth',
+                'nosePositionY',
+                'nosePositionZ',
+              ])
+            );
+          },
+        }),
+        this.faceSection('mouth', 'Mouth', {
+          summary: formatValue(face.mouth ?? FACE_PARAMETER_LIMITS.mouth.default),
+          buildContent: (container) => {
+            container.append(
+              this.sliderRow(
+                'Size',
+                'mouth',
+                FACE_PARAMETER_LIMITS.mouth.min,
+                FACE_PARAMETER_LIMITS.mouth.max,
+                FACE_PARAMETER_LIMITS.mouth.step
+              ),
+              advScale('Width', 'mouthWidth'),
+              advScale('Height', 'mouthHeight'),
+              advScale('Depth', 'mouthDepth'),
+              advPos('Vertical', 'mouthPositionY'),
+              advPos('Forward / Back', 'mouthPositionZ'),
+              resetButton('Reset Mouth', [
+                'mouth',
+                'mouthWidth',
+                'mouthHeight',
+                'mouthDepth',
+                'mouthPositionY',
+                'mouthPositionZ',
+              ])
+            );
+          },
+        }),
+        this.faceSection('brows', 'Brows', {
+          summary: formatValue(face.brow ?? FACE_PARAMETER_LIMITS.brow.default),
+          buildContent: (container) => {
+            container.append(
+              this.sliderRow(
+                'Size',
+                'brow',
+                FACE_PARAMETER_LIMITS.brow.min,
+                FACE_PARAMETER_LIMITS.brow.max,
+                FACE_PARAMETER_LIMITS.brow.step
+              ),
+              advScale('Width', 'browWidth'),
+              advScale('Thickness', 'browThickness'),
+              advScale('Spacing', 'browSpacing'),
+              advPos('Vertical', 'browPositionY'),
+              this.sliderRow('Angle', 'browAngle', -30, 30, 1),
+              resetButton('Reset Brows', [
+                'brow',
+                'browWidth',
+                'browThickness',
+                'browSpacing',
+                'browPositionY',
+                'browAngle',
+              ])
+            );
+          },
+        }),
+        this.faceGroupHeading('Facial Hair'),
+        this.faceSection('facialHair', 'Facial Hair', {
+          summary: formatValue(face.beard ?? FACE_PARAMETER_LIMITS.beard.default),
+          buildContent: (container) => {
+            container.append(
+              this.sliderRow(
+                'Beard',
+                'beard',
+                FACE_PARAMETER_LIMITS.beard.min,
+                FACE_PARAMETER_LIMITS.beard.max,
+                FACE_PARAMETER_LIMITS.beard.step
+              ),
+              this.sliderRow(
+                'Stubble',
+                'stubble',
+                FACE_PARAMETER_LIMITS.stubble.min,
+                FACE_PARAMETER_LIMITS.stubble.max,
+                FACE_PARAMETER_LIMITS.stubble.step
+              )
+            );
+          },
+        }),
+        this.faceGroupHeading('Hair'),
+        this.faceSection('hair', 'Hair', {
+          buildContent: (container) => {
+            container.append(
+              this.selectRow('Style', 'hairStyle', [
+                'shortCrop',
+                'sidePart',
+                'undercut',
+                'buzzCut',
+                'ponytail',
+                'bun',
+                'bald',
+              ]),
+              advScale('Scale', 'hairScale'),
+              advScale('Width', 'hairWidth'),
+              advScale('Height', 'hairHeight'),
+              advScale('Depth', 'hairDepth'),
+              advPos('Vertical', 'hairPositionY'),
+              advPos('Forward / Back', 'hairPositionZ'),
+              this.colorRow('Color', 'hairColor'),
+              resetButton('Reset Hair', [
+                'hairStyle',
+                'hairColor',
+                'hairScale',
+                'hairWidth',
+                'hairHeight',
+                'hairDepth',
+                'hairPositionY',
+                'hairPositionZ',
+              ])
+            );
+          },
+        }),
+        this.faceGroupHeading('Skin'),
+        this.colorRow('Skin tone', 'skinTone')
       );
     } else {
       panel.append(
@@ -544,20 +1038,6 @@ export class AppearanceModal {
       ])
     );
 
-    if (this.view === 'face') {
-      panel.append(
-        this.selectRow('Hair style', 'hairStyle', [
-          'shortCrop',
-          'sidePart',
-          'undercut',
-          'buzzCut',
-          'ponytail',
-          'bun',
-          'bald',
-        ])
-      );
-    }
-
     return panel;
   }
 
@@ -574,7 +1054,7 @@ export class AppearanceModal {
     const showFaceOnly = this.view === 'face';
     this.preview.root.visible = !showFaceOnly;
     this.isolatedFaceRoot.visible = showFaceOnly;
-    this.preview.setHeadOnlyPreview(!showFaceOnly);
+    this.preview.setHeadOnlyPreview(showFaceOnly);
     if (showFaceOnly) {
       this.preview.root.rotation.x = 0;
       this.preview.root.rotation.y = this.getFaceYaw(this.facePreviewOrientation);
@@ -585,6 +1065,8 @@ export class AppearanceModal {
     } else {
       this.preview.root.rotation.set(0, 0, 0);
     }
+    this.updateEditingLabel();
+    this.updateFaceGuidesVisibility();
   }
 
   private syncFaceModelFromDraft() {
@@ -598,12 +1080,7 @@ export class AppearanceModal {
       headScale: profile.headScale,
       jawWidth: profile.jawWidth,
       chinShape: profile.chinShape,
-      brow: baseFace.brow,
-      nose: baseFace.nose,
-      eyeSpacing: baseFace.eyeSpacing,
-      mouth: baseFace.mouth,
-      beard: baseFace.beard,
-      stubble: baseFace.stubble,
+      ...baseFace,
     });
   }
 
@@ -632,7 +1109,7 @@ export class AppearanceModal {
     const group = document.createElement('div');
     group.className = 'appearance-header-orientation-group';
 
-    (['front', 'back'] as FacePreviewOrientation[]).forEach((orientation) => {
+    (['front', 'left', 'right', 'back'] as FacePreviewOrientation[]).forEach((orientation) => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'appearance-header-orientation';
@@ -798,30 +1275,7 @@ export class AppearanceModal {
 
   private sliderRow(
     label: string,
-    key:
-      | 'headScale'
-      | 'jawWidth'
-      | 'chinShape'
-      | 'brow'
-      | 'nose'
-      | 'eyeSpacing'
-      | 'mouth'
-      | 'beard'
-      | 'stubble'
-      | 'shoulderWidth'
-      | 'torsoLength'
-      | 'neckWidth'
-      | 'neckLength'
-      | 'torsoTaper'
-      | 'hipWidth'
-      | 'armThickness'
-      | 'legLength'
-      | 'legTaper'
-      | 'sleeveLength'
-      | 'collarHeight'
-      | 'shirtFit'
-      | 'shortsLength'
-      | 'pantsFit',
+    key: NumericSliderKey,
     min: number,
     max: number,
     step: number
@@ -845,41 +1299,24 @@ export class AppearanceModal {
     input.addEventListener('input', () => {
       updateValue();
       this.setNumericValue(key, Number.parseFloat(input.value));
+      if (key === 'jawWidth') {
+        console.warn('[JAW VALUE]', {
+          uiValue: Number.parseFloat(input.value),
+          appearanceValue: this.draft.profile?.jawWidth,
+          appliedValue: this.isolatedFace?.config.jawWidth,
+        });
+      }
       this.preview.setAppearance(this.draft);
       this.syncFaceModelFromDraft();
       this.clearLegacyDiagnosticsState();
       this.resetView();
+      this.logExpandedPartTransforms();
     });
     row.append(meta, value, input);
     return row;
   }
 
-  private getNumericValue(
-    key:
-      | 'headScale'
-      | 'jawWidth'
-      | 'chinShape'
-      | 'brow'
-      | 'nose'
-      | 'eyeSpacing'
-      | 'mouth'
-      | 'beard'
-      | 'stubble'
-      | 'shoulderWidth'
-      | 'torsoLength'
-      | 'neckWidth'
-      | 'neckLength'
-      | 'torsoTaper'
-      | 'hipWidth'
-      | 'armThickness'
-      | 'legLength'
-      | 'legTaper'
-      | 'sleeveLength'
-      | 'collarHeight'
-      | 'shirtFit'
-      | 'shortsLength'
-      | 'pantsFit'
-  ): number {
+  private getNumericValue(key: NumericSliderKey): number {
     const profile = this.draft.profile ?? BODY_PROFILES[this.draft.bodyProfile ?? 'athleticMale'];
     const face = this.draft.face ?? FACE_PRESETS[this.draft.facePreset ?? 'male'];
     const outfit = this.draft.outfit ?? {
@@ -889,6 +1326,13 @@ export class AppearanceModal {
       shortsLength: 1,
       pantsFit: 0.9,
     };
+
+    if (key in FACE_ADVANCED_DEFAULTS) {
+      return (
+        (face as Record<string, number | undefined>)[key] ??
+        FACE_ADVANCED_DEFAULTS[key as FaceAdvancedKey]
+      );
+    }
 
     switch (key) {
       case 'headScale':
@@ -914,6 +1358,11 @@ export class AppearanceModal {
         return clampFaceParameterValue(
           'eyeSpacing',
           face.eyeSpacing ?? FACE_PARAMETER_LIMITS.eyeSpacing.default
+        );
+      case 'eyeSize':
+        return clampFaceParameterValue(
+          'eyeSize',
+          face.eyeSize ?? FACE_PARAMETER_LIMITS.eyeSize.default
         );
       case 'mouth':
         return clampFaceParameterValue('mouth', face.mouth ?? FACE_PARAMETER_LIMITS.mouth.default);
@@ -957,33 +1406,7 @@ export class AppearanceModal {
     }
   }
 
-  private setNumericValue(
-    key:
-      | 'headScale'
-      | 'jawWidth'
-      | 'chinShape'
-      | 'brow'
-      | 'nose'
-      | 'eyeSpacing'
-      | 'mouth'
-      | 'beard'
-      | 'stubble'
-      | 'shoulderWidth'
-      | 'torsoLength'
-      | 'neckWidth'
-      | 'neckLength'
-      | 'torsoTaper'
-      | 'hipWidth'
-      | 'armThickness'
-      | 'legLength'
-      | 'legTaper'
-      | 'sleeveLength'
-      | 'collarHeight'
-      | 'shirtFit'
-      | 'shortsLength'
-      | 'pantsFit',
-    value: number
-  ) {
+  private setNumericValue(key: NumericSliderKey, value: number) {
     const nextProfile = {
       ...(this.draft.profile ?? BODY_PROFILES[this.draft.bodyProfile ?? 'athleticMale']),
     };
@@ -997,6 +1420,14 @@ export class AppearanceModal {
         pantsFit: 0.9,
       }),
     };
+
+    if (key in FACE_ADVANCED_DEFAULTS) {
+      (nextFace as Record<string, number>)[key] = value;
+      this.draft.profile = nextProfile;
+      this.draft.face = nextFace;
+      this.draft.outfit = nextOutfit;
+      return;
+    }
 
     switch (key) {
       case 'headScale':
@@ -1016,6 +1447,9 @@ export class AppearanceModal {
         break;
       case 'eyeSpacing':
         nextFace.eyeSpacing = clampFaceParameterValue('eyeSpacing', value);
+        break;
+      case 'eyeSize':
+        nextFace.eyeSize = clampFaceParameterValue('eyeSize', value);
         break;
       case 'mouth':
         nextFace.mouth = clampFaceParameterValue('mouth', value);
@@ -1153,6 +1587,19 @@ export class AppearanceModal {
         control.value = this.getSelectValue(key);
       }
     });
+
+    const sliders = this.controlsWrap.querySelectorAll<HTMLInputElement>('input[type="range"]');
+    sliders.forEach((slider) => {
+      const key = slider.dataset.key as Parameters<AppearanceModal['getNumericValue']>[0];
+      if (key) {
+        slider.value = String(this.getNumericValue(key));
+        const output = slider.closest('.appearance-control')?.querySelector('output');
+        if (output) {
+          const step = Number(slider.step);
+          output.textContent = Number.parseFloat(slider.value).toFixed(step < 1 ? 2 : 0);
+        }
+      }
+    });
   }
 
   private bindPreviewInteractivity(canvas: HTMLCanvasElement) {
@@ -1209,28 +1656,6 @@ export class AppearanceModal {
     }
   };
 
-  private getPreviewPreset() {
-    if (this.view === 'face') {
-      return {
-        paddingX: 0.22,
-        paddingY: 0.42,
-        minDistance: 0.42,
-        maxDistance: 2.2,
-        targetOffsetY: -0.02,
-        direction: new THREE.Vector3(0, -0.08, 1).normalize(),
-      };
-    }
-
-    return {
-      paddingX: 0.8,
-      paddingY: 0.7,
-      minDistance: 2.2,
-      maxDistance: 7.2,
-      targetOffsetY: 0.18,
-      direction: new THREE.Vector3(0.08, 0.18, 1).normalize(),
-    };
-  }
-
   private frameBodyPreview(golferRoot: THREE.Object3D) {
     const bounds = new THREE.Box3().setFromObject(golferRoot);
     if (bounds.isEmpty()) {
@@ -1281,6 +1706,10 @@ export class AppearanceModal {
     switch (orientation) {
       case 'front':
         return 0;
+      case 'left':
+        return Math.PI / 2;
+      case 'right':
+        return -Math.PI / 2;
       case 'back':
         return Math.PI;
       default:
@@ -1289,71 +1718,62 @@ export class AppearanceModal {
   }
 
   private resetView() {
-    const preset = this.getPreviewPreset();
-
-    let target = new THREE.Vector3();
-    const targetRoot = this.view === 'face' ? this.isolatedFaceRoot : this.preview.root;
-    const objectBox = new THREE.Box3().setFromObject(targetRoot);
-    if (objectBox.isEmpty()) {
-      return;
-    }
-    target.copy(objectBox.getCenter(new THREE.Vector3()));
-
-    if (this.view === 'face') {
-      const headPart = this.isolatedFaceRoot.getObjectByName('head-part');
-      if (headPart) {
-        const headWorld = headPart.getWorldPosition(new THREE.Vector3());
-        target.copy(headWorld);
-      }
-    }
+    this.camera.fov = this.view === 'face' ? 30 : 35;
+    this.camera.updateProjectionMatrix();
 
     if (this.view === 'look') {
       this.frameBodyPreview(this.preview.root);
       this.preview.root.rotation.x = 0;
-      this.preview.root.rotation.y = 0;
+      // Orientation buttons rotate the BODY too, so Front/Back/Left/Right are
+      // consistent between Face and Body modes.
+      this.preview.root.rotation.y = this.getFaceYaw(this.facePreviewOrientation);
       this.preview.root.rotation.z = 0;
       this.isolatedFaceRoot.rotation.set(0, 0, 0);
       this.updateHeaderOrientationButtons();
+      this.updateEditingLabel();
+      this.updateFaceGuidesVisibility();
       return;
     }
 
-    target.y += preset.targetOffsetY;
-    const size =
-      this.view === 'face'
-        ? new THREE.Vector3(0.38, 0.52, 0.28)
-        : new THREE.Box3().setFromObject(this.preview.root).getSize(new THREE.Vector3());
-    const aspect = this.previewHost.clientWidth / Math.max(this.previewHost.clientHeight, 1);
-
-    const fitHeight = (size.y + preset.paddingY) * 0.5;
-    const fitWidth = (size.x + preset.paddingX) * 0.5;
-    const fov = (this.camera.fov * Math.PI) / 180;
-    const distanceFromHeight = fitHeight / Math.tan(fov / 2);
-    const distanceFromWidth = fitWidth / Math.tan(fov / 2) / aspect;
-    const distance = clamp(
-      Math.max(distanceFromHeight, distanceFromWidth) * 1.08,
-      preset.minDistance,
-      preset.maxDistance
-    );
-
-    const direction = preset.direction.clone();
-    this.camera.position.copy(target.clone().add(direction.multiplyScalar(distance)));
-    this.camera.lookAt(target);
-    this.camera.updateProjectionMatrix();
-    this.preview.root.rotation.x = 0;
-    this.preview.root.rotation.y = this.getFaceYaw(this.facePreviewOrientation);
-    this.preview.root.rotation.z = 0;
+    this.frameFacePortrait();
+    this.preview.root.rotation.set(0, 0, 0);
     this.isolatedFaceRoot.rotation.x = 0;
     this.isolatedFaceRoot.rotation.y = this.getFaceYaw(this.facePreviewOrientation);
     this.isolatedFaceRoot.rotation.z = 0;
-    this.cameraTarget.copy(target);
     this.updateHeaderOrientationButtons();
+    this.updateEditingLabel();
+    this.updateFaceGuidesVisibility();
+  }
+
+  private frameFacePortrait() {
+    const headPart = this.isolatedFaceRoot.getObjectByName('head-part');
+    const faceBox = new THREE.Box3().setFromObject(this.isolatedFaceRoot);
+    if (faceBox.isEmpty()) {
+      return;
+    }
+
+    const size = faceBox.getSize(new THREE.Vector3());
+    const target =
+      headPart?.getWorldPosition(new THREE.Vector3()) ?? faceBox.getCenter(new THREE.Vector3());
+
+    const aspect = this.previewHost.clientWidth / Math.max(this.previewHost.clientHeight, 1);
+    this.camera.aspect = aspect;
+    this.camera.updateProjectionMatrix();
+
+    const fov = THREE.MathUtils.degToRad(this.camera.fov);
+    const fitHeight = size.y * 0.62;
+    const fitWidth = size.x * 0.62;
+    const distanceFromHeight = fitHeight / 2 / Math.tan(fov / 2);
+    const distanceFromWidth = fitWidth / 2 / (Math.tan(fov / 2) * aspect);
+    const distance = clamp(Math.max(distanceFromHeight, distanceFromWidth) * 1.05, 0.5, 3.5);
+
+    this.camera.position.copy(target.clone().add(new THREE.Vector3(0, 0, distance)));
+    this.camera.lookAt(target);
+    this.cameraTarget.copy(target);
   }
 
   private animate = () => {
     this.renderer.render(this.scene, this.camera);
-    if (this.view === 'look' && !this.pointer.down) {
-      this.preview.root.rotation.y += 0.003;
-    }
     this.animationId = requestAnimationFrame(this.animate);
   };
 

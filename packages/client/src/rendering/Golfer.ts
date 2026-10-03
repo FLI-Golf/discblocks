@@ -126,9 +126,60 @@ export type FaceParameterKey =
   | 'brow'
   | 'nose'
   | 'eyeSpacing'
+  | 'eyeSize'
   | 'mouth'
   | 'beard'
   | 'stubble';
+
+export type FaceAdvancedKey =
+  | 'headWidth'
+  | 'headHeight'
+  | 'headDepth'
+  | 'headPositionY'
+  | 'headPositionZ'
+  | 'cheekSize'
+  | 'cheekWidth'
+  | 'cheekHeight'
+  | 'cheekDepth'
+  | 'cheekSpacing'
+  | 'cheekPositionY'
+  | 'cheekPositionZ'
+  | 'jawHeight'
+  | 'jawDepth'
+  | 'jawPositionY'
+  | 'jawPositionZ'
+  | 'chinSize'
+  | 'chinWidth'
+  | 'chinHeight'
+  | 'chinDepth'
+  | 'chinPositionY'
+  | 'chinPositionZ'
+  | 'eyeWidth'
+  | 'eyeHeight'
+  | 'eyeDepth'
+  | 'eyePositionY'
+  | 'eyePositionZ'
+  | 'noseWidth'
+  | 'noseHeight'
+  | 'noseDepth'
+  | 'nosePositionY'
+  | 'nosePositionZ'
+  | 'mouthWidth'
+  | 'mouthHeight'
+  | 'mouthDepth'
+  | 'mouthPositionY'
+  | 'mouthPositionZ'
+  | 'browWidth'
+  | 'browThickness'
+  | 'browSpacing'
+  | 'browPositionY'
+  | 'browAngle'
+  | 'hairScale'
+  | 'hairWidth'
+  | 'hairHeight'
+  | 'hairDepth'
+  | 'hairPositionY'
+  | 'hairPositionZ';
 
 export const FACE_PARAMETER_LIMITS: Record<
   FaceParameterKey,
@@ -140,13 +191,121 @@ export const FACE_PARAMETER_LIMITS: Record<
   brow: { min: 0.0, max: 1.2, default: 0.72, step: 0.01 },
   nose: { min: 0.55, max: 1.45, default: 0.5, step: 0.01 },
   eyeSpacing: { min: 0.3, max: 1.2, default: 0.7, step: 0.01 },
+  eyeSize: { min: 0.5, max: 1.5, default: 1.0, step: 0.01 },
   mouth: { min: 0.3, max: 1.4, default: 0.42, step: 0.01 },
   beard: { min: 0.0, max: 1.0, default: 0.0, step: 0.01 },
   stubble: { min: 0.0, max: 1.0, default: 0.0, step: 0.01 },
 };
 
+export const FACE_ADVANCED_DEFAULTS: Record<FaceAdvancedKey, number> = {
+  headWidth: 1,
+  headHeight: 1,
+  headDepth: 1,
+  headPositionY: 0,
+  headPositionZ: 0,
+  cheekSize: 1,
+  cheekWidth: 1,
+  cheekHeight: 1,
+  cheekDepth: 1,
+  cheekSpacing: 1,
+  cheekPositionY: 0,
+  cheekPositionZ: 0,
+  jawHeight: 1,
+  jawDepth: 1,
+  jawPositionY: 0,
+  jawPositionZ: 0,
+  chinSize: 1,
+  chinWidth: 1,
+  chinHeight: 1,
+  chinDepth: 1,
+  chinPositionY: 0,
+  chinPositionZ: 0,
+  eyeWidth: 1,
+  eyeHeight: 1,
+  eyeDepth: 1,
+  eyePositionY: 0,
+  eyePositionZ: 0,
+  noseWidth: 1,
+  noseHeight: 1,
+  noseDepth: 1,
+  nosePositionY: 0,
+  nosePositionZ: 0,
+  mouthWidth: 1,
+  mouthHeight: 1,
+  mouthDepth: 1,
+  mouthPositionY: 0,
+  mouthPositionZ: 0,
+  browWidth: 1,
+  browThickness: 1,
+  browSpacing: 1,
+  browPositionY: 0,
+  browAngle: 0,
+  hairScale: 1,
+  hairWidth: 1,
+  hairHeight: 1,
+  hairDepth: 1,
+  hairPositionY: 0,
+  hairPositionZ: 0,
+};
+
+const FACE_ADVANCED_LIMITS: Record<FaceAdvancedKey, { min: number; max: number }> = {
+  headWidth: { min: 0.5, max: 1.5 },
+  headHeight: { min: 0.5, max: 1.5 },
+  headDepth: { min: 0.5, max: 1.5 },
+  headPositionY: { min: -0.1, max: 0.1 },
+  headPositionZ: { min: -0.1, max: 0.1 },
+  cheekSize: { min: 0.5, max: 1.5 },
+  cheekWidth: { min: 0.5, max: 1.5 },
+  cheekHeight: { min: 0.5, max: 1.5 },
+  cheekDepth: { min: 0.5, max: 1.5 },
+  cheekSpacing: { min: 0.5, max: 1.5 },
+  cheekPositionY: { min: -0.1, max: 0.1 },
+  cheekPositionZ: { min: -0.1, max: 0.1 },
+  jawHeight: { min: 0.5, max: 1.5 },
+  jawDepth: { min: 0.5, max: 1.5 },
+  jawPositionY: { min: -0.1, max: 0.1 },
+  jawPositionZ: { min: -0.1, max: 0.1 },
+  chinSize: { min: 0.5, max: 1.5 },
+  chinWidth: { min: 0.5, max: 1.5 },
+  chinHeight: { min: 0.5, max: 1.5 },
+  chinDepth: { min: 0.5, max: 1.5 },
+  chinPositionY: { min: -0.1, max: 0.1 },
+  chinPositionZ: { min: -0.1, max: 0.1 },
+  eyeWidth: { min: 0.5, max: 1.5 },
+  eyeHeight: { min: 0.5, max: 1.5 },
+  eyeDepth: { min: 0.5, max: 1.5 },
+  eyePositionY: { min: -0.1, max: 0.1 },
+  eyePositionZ: { min: -0.1, max: 0.1 },
+  noseWidth: { min: 0.5, max: 1.5 },
+  noseHeight: { min: 0.5, max: 1.5 },
+  noseDepth: { min: 0.5, max: 1.5 },
+  nosePositionY: { min: -0.1, max: 0.1 },
+  nosePositionZ: { min: -0.1, max: 0.1 },
+  mouthWidth: { min: 0.5, max: 1.5 },
+  mouthHeight: { min: 0.5, max: 1.5 },
+  mouthDepth: { min: 0.5, max: 1.5 },
+  mouthPositionY: { min: -0.1, max: 0.1 },
+  mouthPositionZ: { min: -0.1, max: 0.1 },
+  browWidth: { min: 0.5, max: 1.5 },
+  browThickness: { min: 0.5, max: 1.5 },
+  browSpacing: { min: 0.5, max: 1.5 },
+  browPositionY: { min: -0.1, max: 0.1 },
+  browAngle: { min: -30, max: 30 },
+  hairScale: { min: 0.5, max: 1.5 },
+  hairWidth: { min: 0.5, max: 1.5 },
+  hairHeight: { min: 0.5, max: 1.5 },
+  hairDepth: { min: 0.5, max: 1.5 },
+  hairPositionY: { min: -0.1, max: 0.1 },
+  hairPositionZ: { min: -0.1, max: 0.1 },
+};
+
 export function clampFaceParameterValue(key: FaceParameterKey, value: number): number {
   const limit = FACE_PARAMETER_LIMITS[key];
+  return THREE.MathUtils.clamp(value, limit.min, limit.max);
+}
+
+export function clampFaceAdvancedValue(key: FaceAdvancedKey, value: number): number {
+  const limit = FACE_ADVANCED_LIMITS[key];
   return THREE.MathUtils.clamp(value, limit.min, limit.max);
 }
 
@@ -175,9 +334,58 @@ export interface FaceConfig {
   brow: number;
   nose: number;
   eyeSpacing: number;
+  eyeSize: number;
   mouth: number;
   beard: number;
   stubble: number;
+  headWidth: number;
+  headHeight: number;
+  headDepth: number;
+  headPositionY: number;
+  headPositionZ: number;
+  cheekSize: number;
+  cheekWidth: number;
+  cheekHeight: number;
+  cheekDepth: number;
+  cheekSpacing: number;
+  cheekPositionY: number;
+  cheekPositionZ: number;
+  jawHeight: number;
+  jawDepth: number;
+  jawPositionY: number;
+  jawPositionZ: number;
+  chinSize: number;
+  chinWidth: number;
+  chinHeight: number;
+  chinDepth: number;
+  chinPositionY: number;
+  chinPositionZ: number;
+  eyeWidth: number;
+  eyeHeight: number;
+  eyeDepth: number;
+  eyePositionY: number;
+  eyePositionZ: number;
+  noseWidth: number;
+  noseHeight: number;
+  noseDepth: number;
+  nosePositionY: number;
+  nosePositionZ: number;
+  mouthWidth: number;
+  mouthHeight: number;
+  mouthDepth: number;
+  mouthPositionY: number;
+  mouthPositionZ: number;
+  browWidth: number;
+  browThickness: number;
+  browSpacing: number;
+  browPositionY: number;
+  browAngle: number;
+  hairScale: number;
+  hairWidth: number;
+  hairHeight: number;
+  hairDepth: number;
+  hairPositionY: number;
+  hairPositionZ: number;
 }
 
 export interface CharacterAppearance {
@@ -215,9 +423,58 @@ export interface CharacterAppearance {
     brow: number;
     nose: number;
     eyeSpacing: number;
+    eyeSize: number;
     mouth: number;
     beard: number;
     stubble: number;
+    headWidth: number;
+    headHeight: number;
+    headDepth: number;
+    headPositionY: number;
+    headPositionZ: number;
+    cheekSize: number;
+    cheekWidth: number;
+    cheekHeight: number;
+    cheekDepth: number;
+    cheekSpacing: number;
+    cheekPositionY: number;
+    cheekPositionZ: number;
+    jawHeight: number;
+    jawDepth: number;
+    jawPositionY: number;
+    jawPositionZ: number;
+    chinSize: number;
+    chinWidth: number;
+    chinHeight: number;
+    chinDepth: number;
+    chinPositionY: number;
+    chinPositionZ: number;
+    eyeWidth: number;
+    eyeHeight: number;
+    eyeDepth: number;
+    eyePositionY: number;
+    eyePositionZ: number;
+    noseWidth: number;
+    noseHeight: number;
+    noseDepth: number;
+    nosePositionY: number;
+    nosePositionZ: number;
+    mouthWidth: number;
+    mouthHeight: number;
+    mouthDepth: number;
+    mouthPositionY: number;
+    mouthPositionZ: number;
+    browWidth: number;
+    browThickness: number;
+    browSpacing: number;
+    browPositionY: number;
+    browAngle: number;
+    hairScale: number;
+    hairWidth: number;
+    hairHeight: number;
+    hairDepth: number;
+    hairPositionY: number;
+    hairPositionZ: number;
   };
 }
 
@@ -265,6 +522,9 @@ const DEFAULT_LOOK: GolferLook = {
   build: 1.04,
 };
 
+// Neutral standing/calibration pose for the BODY preview. Arms hang nearly
+// straight down from the shoulders with a slight outward angle and a slight
+// elbow bend, mirrored left/right. Gameplay throw poses are separate.
 const STAND_POSE: Pose = {
   rootYaw: 0,
   rootLift: 0,
@@ -272,10 +532,10 @@ const STAND_POSE: Pose = {
     hips: [0, 0, 0],
     torso: [0.08, 0, 0],
     head: [0, -0.12, 0],
-    shoulderR: [0.25, 0, -0.7],
-    elbowR: [0, 0, -0.28],
-    shoulderL: [0.15, 0, 0.78],
-    elbowL: [0, 0, 0.38],
+    shoulderR: [0.02, 0, -0.3],
+    elbowR: [0.01, 0, -0.16],
+    shoulderL: [0.02, 0, 0.3],
+    elbowL: [0.01, 0, 0.16],
     hipR: [0.06, 0, 0.08],
     kneeR: [0.12, 0, 0],
     hipL: [0.04, 0, -0.08],
@@ -376,9 +636,58 @@ export function buildCharacterAppearance(
     brow: overrides.brow ?? overrides.face?.brow ?? facePreset.brow,
     nose: overrides.nose ?? overrides.face?.nose ?? facePreset.nose,
     eyeSpacing: overrides.eyeSpacing ?? overrides.face?.eyeSpacing ?? facePreset.eyeSpacing,
+    eyeSize: overrides.face?.eyeSize ?? facePreset.eyeSize,
     mouth: overrides.mouth ?? overrides.face?.mouth ?? facePreset.mouth,
     beard: overrides.beard ?? overrides.face?.beard ?? facePreset.beard,
     stubble: overrides.stubble ?? overrides.face?.stubble ?? facePreset.stubble,
+    headWidth: overrides.face?.headWidth ?? facePreset.headWidth,
+    headHeight: overrides.face?.headHeight ?? facePreset.headHeight,
+    headDepth: overrides.face?.headDepth ?? facePreset.headDepth,
+    headPositionY: overrides.face?.headPositionY ?? facePreset.headPositionY,
+    headPositionZ: overrides.face?.headPositionZ ?? facePreset.headPositionZ,
+    cheekSize: overrides.face?.cheekSize ?? facePreset.cheekSize,
+    cheekWidth: overrides.face?.cheekWidth ?? facePreset.cheekWidth,
+    cheekHeight: overrides.face?.cheekHeight ?? facePreset.cheekHeight,
+    cheekDepth: overrides.face?.cheekDepth ?? facePreset.cheekDepth,
+    cheekSpacing: overrides.face?.cheekSpacing ?? facePreset.cheekSpacing,
+    cheekPositionY: overrides.face?.cheekPositionY ?? facePreset.cheekPositionY,
+    cheekPositionZ: overrides.face?.cheekPositionZ ?? facePreset.cheekPositionZ,
+    jawHeight: overrides.face?.jawHeight ?? facePreset.jawHeight,
+    jawDepth: overrides.face?.jawDepth ?? facePreset.jawDepth,
+    jawPositionY: overrides.face?.jawPositionY ?? facePreset.jawPositionY,
+    jawPositionZ: overrides.face?.jawPositionZ ?? facePreset.jawPositionZ,
+    chinSize: overrides.face?.chinSize ?? facePreset.chinSize,
+    chinWidth: overrides.face?.chinWidth ?? facePreset.chinWidth,
+    chinHeight: overrides.face?.chinHeight ?? facePreset.chinHeight,
+    chinDepth: overrides.face?.chinDepth ?? facePreset.chinDepth,
+    chinPositionY: overrides.face?.chinPositionY ?? facePreset.chinPositionY,
+    chinPositionZ: overrides.face?.chinPositionZ ?? facePreset.chinPositionZ,
+    eyeWidth: overrides.face?.eyeWidth ?? facePreset.eyeWidth,
+    eyeHeight: overrides.face?.eyeHeight ?? facePreset.eyeHeight,
+    eyeDepth: overrides.face?.eyeDepth ?? facePreset.eyeDepth,
+    eyePositionY: overrides.face?.eyePositionY ?? facePreset.eyePositionY,
+    eyePositionZ: overrides.face?.eyePositionZ ?? facePreset.eyePositionZ,
+    noseWidth: overrides.face?.noseWidth ?? facePreset.noseWidth,
+    noseHeight: overrides.face?.noseHeight ?? facePreset.noseHeight,
+    noseDepth: overrides.face?.noseDepth ?? facePreset.noseDepth,
+    nosePositionY: overrides.face?.nosePositionY ?? facePreset.nosePositionY,
+    nosePositionZ: overrides.face?.nosePositionZ ?? facePreset.nosePositionZ,
+    mouthWidth: overrides.face?.mouthWidth ?? facePreset.mouthWidth,
+    mouthHeight: overrides.face?.mouthHeight ?? facePreset.mouthHeight,
+    mouthDepth: overrides.face?.mouthDepth ?? facePreset.mouthDepth,
+    mouthPositionY: overrides.face?.mouthPositionY ?? facePreset.mouthPositionY,
+    mouthPositionZ: overrides.face?.mouthPositionZ ?? facePreset.mouthPositionZ,
+    browWidth: overrides.face?.browWidth ?? facePreset.browWidth,
+    browThickness: overrides.face?.browThickness ?? facePreset.browThickness,
+    browSpacing: overrides.face?.browSpacing ?? facePreset.browSpacing,
+    browPositionY: overrides.face?.browPositionY ?? facePreset.browPositionY,
+    browAngle: overrides.face?.browAngle ?? facePreset.browAngle,
+    hairScale: overrides.face?.hairScale ?? facePreset.hairScale,
+    hairWidth: overrides.face?.hairWidth ?? facePreset.hairWidth,
+    hairHeight: overrides.face?.hairHeight ?? facePreset.hairHeight,
+    hairDepth: overrides.face?.hairDepth ?? facePreset.hairDepth,
+    hairPositionY: overrides.face?.hairPositionY ?? facePreset.hairPositionY,
+    hairPositionZ: overrides.face?.hairPositionZ ?? facePreset.hairPositionZ,
   };
 
   const appearance: CharacterAppearance = {
@@ -424,9 +733,11 @@ export const FACE_PRESETS: Record<FacePresetId, FaceConfig> = {
     brow: 0.72,
     nose: 0.5,
     eyeSpacing: 0.7,
+    eyeSize: 1.0,
     mouth: 0.42,
     beard: 0,
     stubble: 0,
+    ...FACE_ADVANCED_DEFAULTS,
   },
   female: {
     preset: 'female',
@@ -439,9 +750,11 @@ export const FACE_PRESETS: Record<FacePresetId, FaceConfig> = {
     brow: 0.28,
     nose: 0.72,
     eyeSpacing: 0.62,
+    eyeSize: 1.0,
     mouth: 0.36,
     beard: 0,
     stubble: 0,
+    ...FACE_ADVANCED_DEFAULTS,
   },
   neutral: {
     preset: 'neutral',
@@ -454,9 +767,11 @@ export const FACE_PRESETS: Record<FacePresetId, FaceConfig> = {
     brow: 0.55,
     nose: 0.57,
     eyeSpacing: 0.57,
+    eyeSize: 1.0,
     mouth: 0.52,
     beard: 0,
     stubble: 0.02,
+    ...FACE_ADVANCED_DEFAULTS,
   },
 };
 
@@ -1132,12 +1447,14 @@ export class Face {
   private static sharedKTX2Loader?: KTX2Loader;
 
   readonly root = new THREE.Group();
-  private config: FaceConfig;
+  public config: FaceConfig;
   private faceMesh?: THREE.Mesh & {
     morphTargetDictionary?: Record<string, number>;
     morphTargetInfluences?: number[];
   };
   private hairRoot?: THREE.Group;
+  private lastJawDebugValue?: number;
+  private lastEyeDebugValue?: number;
   private readonly baselineTransforms = new Map<
     THREE.Object3D,
     { position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 }
@@ -1248,8 +1565,8 @@ export class Face {
 
     const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.118, 20, 18), skin.clone());
     jaw.name = 'jaw-part';
-    jaw.scale.set(1.24, 0.96, 1.06);
-    jaw.position.set(0, -0.14, 0.05);
+    jaw.scale.set(0.85, 0.6, 0.9);
+    jaw.position.set(0, -0.125, 0.06);
     this.root.add(jaw);
 
     const cheekLeft = new THREE.Mesh(new THREE.SphereGeometry(0.04, 12, 10), skin.clone());
@@ -1366,6 +1683,10 @@ export class Face {
     ].forEach((part) => this.captureBaseline(part));
 
     this.addHair();
+    if (this.hairRoot) {
+      this.faceParts.hairRoot = this.hairRoot;
+      this.captureBaseline(this.hairRoot);
+    }
     console.warn('[Face] fallback head built');
     this.debugObjectState('fallback head created');
   }
@@ -1703,6 +2024,7 @@ export class Face {
         'brow',
         'nose',
         'eyeSpacing',
+        'eyeSize',
         'mouth',
         'beard',
         'stubble',
@@ -1727,6 +2049,7 @@ export class Face {
       | 'brow'
       | 'nose'
       | 'eyeSpacing'
+      | 'eyeSize'
       | 'mouth'
       | 'beard'
       | 'stubble'
@@ -1799,12 +2122,34 @@ export class Face {
         'iris-right',
         'eyelid-right',
       ],
+      eyeSize: [
+        'eye-white-left',
+        'iris-left',
+        'eyelid-left',
+        'eye-white-right',
+        'iris-right',
+        'eyelid-right',
+      ],
       mouth: ['mouth-part'],
       beard: ['beard-part'],
       stubble: ['stubble-part'],
     };
 
     return mapping[parameter as string] ?? [];
+  }
+
+  private getBaseline(object: THREE.Object3D) {
+    return (
+      this.baselineTransforms.get(object) ?? {
+        position: object.position.clone(),
+        rotation: object.rotation.clone(),
+        scale: object.scale.clone(),
+      }
+    );
+  }
+
+  private advancedValue(key: FaceAdvancedKey): number {
+    return this.config[key] ?? FACE_ADVANCED_DEFAULTS[key];
   }
 
   private apply() {
@@ -1816,6 +2161,7 @@ export class Face {
         'brow',
         'nose',
         'eyeSpacing',
+        'eyeSize',
         'mouth',
         'beard',
         'stubble',
@@ -1828,233 +2174,364 @@ export class Face {
     const hairstyle = this.normalizeHairStyle(this.config.hairStyle);
     this.config.hairStyle = hairstyle;
     this.addHair();
+    if (this.hairRoot) {
+      this.faceParts.hairRoot = this.hairRoot;
+      if (!this.baselineTransforms.has(this.hairRoot)) {
+        this.captureBaseline(this.hairRoot);
+      }
+    }
 
     const headPart = this.faceParts.head;
     if (headPart) {
-      const baseline = this.baselineTransforms.get(headPart) ?? {
-        position: headPart.position.clone(),
-        rotation: headPart.rotation.clone(),
-        scale: headPart.scale.clone(),
-      };
       const headScaleFactor = 1.06 + (this.config.headScale - 1) * 0.5;
       const headYFactor = 1.18 + (this.config.headScale - 1) * 0.52;
       const headZFactor = 0.98 + (this.config.headScale - 1) * 0.3;
-      headPart.scale.set(
-        (baseline.scale.x * headScaleFactor) / 1.12,
-        (baseline.scale.y * headYFactor) / 1.34,
-        (baseline.scale.z * headZFactor) / 1.06
-      );
+      const baseX = this.getBaseline(headPart).scale.x;
+      const baseY = this.getBaseline(headPart).scale.y;
+      const baseZ = this.getBaseline(headPart).scale.z;
+      const macroX = (baseX * headScaleFactor) / 1.12;
+      const macroY = (baseY * headYFactor) / 1.34;
+      const macroZ = (baseZ * headZFactor) / 1.06;
+      const adv = {
+        width: this.advancedValue('headWidth'),
+        height: this.advancedValue('headHeight'),
+        depth: this.advancedValue('headDepth'),
+        posY: this.advancedValue('headPositionY'),
+        posZ: this.advancedValue('headPositionZ'),
+      };
+      headPart.scale.set(macroX * adv.width, macroY * adv.height, macroZ * adv.depth);
+      const basePos = this.getBaseline(headPart).position;
       headPart.position.set(
-        baseline.position.x,
-        baseline.position.y + (this.config.headScale - 1) * 0.014,
-        baseline.position.z
+        basePos.x,
+        basePos.y + (this.config.headScale - 1) * 0.014 + adv.posY,
+        basePos.z + adv.posZ
       );
     }
 
     const jaw = this.faceParts.jaw;
     if (jaw) {
-      const baseline = this.baselineTransforms.get(jaw) ?? {
-        position: jaw.position.clone(),
-        rotation: jaw.rotation.clone(),
-        scale: jaw.scale.clone(),
+      const jawLimit = FACE_PARAMETER_LIMITS.jawWidth;
+      const jawValue = clampFaceParameterValue('jawWidth', this.config.jawWidth);
+      const jawT =
+        jawValue >= jawLimit.default
+          ? (jawValue - jawLimit.default) / (jawLimit.max - jawLimit.default)
+          : (jawValue - jawLimit.default) / (jawLimit.default - jawLimit.min);
+      const wideT = Math.max(0, jawT);
+      const narrowT = Math.max(0, -jawT);
+
+      const jawScaleX = 1 + 0.22 * wideT - 0.3 * narrowT;
+      const jawScaleY = 1 + 0.06 * wideT - 0.1 * narrowT;
+      const jawScaleZ = 1 + 0.05 * wideT - 0.06 * narrowT;
+      const jawOffsetY = 0.008 * narrowT - 0.004 * wideT;
+
+      const chinScaleY =
+        1 + (this.config.chinShape - FACE_PARAMETER_LIMITS.chinShape.default) * 0.5;
+
+      const jawAdv = {
+        height: this.advancedValue('jawHeight'),
+        depth: this.advancedValue('jawDepth'),
+        posY: this.advancedValue('jawPositionY'),
+        posZ: this.advancedValue('jawPositionZ'),
       };
-      const jawScaleX = mapFaceParameterToGeometry('jawWidth', this.config.jawWidth);
-      const chinScaleY = mapFaceParameterToGeometry('chinShape', this.config.chinShape);
-      jaw.scale.set(
-        baseline.scale.x * jawScaleX,
-        baseline.scale.y * chinScaleY,
-        baseline.scale.z * 0.96
-      );
+      const chinAdv = {
+        size: this.advancedValue('chinSize'),
+        width: this.advancedValue('chinWidth'),
+        height: this.advancedValue('chinHeight'),
+        depth: this.advancedValue('chinDepth'),
+        posY: this.advancedValue('chinPositionY'),
+        posZ: this.advancedValue('chinPositionZ'),
+      };
+
+      let resultScaleX = this.getBaseline(jaw).scale.x * jawScaleX * chinAdv.size * chinAdv.width;
+      if (headPart) {
+        const jawGeometry = jaw.geometry as THREE.SphereGeometry;
+        const headGeometry = headPart.geometry as THREE.SphereGeometry;
+        const jawRadius = jawGeometry.parameters?.radius ?? 0.118;
+        const headRadius = headGeometry.parameters?.radius ?? 0.16;
+        const maxJawScaleX = ((headRadius * headPart.scale.x) / jawRadius) * 0.85;
+        resultScaleX = Math.min(resultScaleX, maxJawScaleX);
+      }
+
+      const resultScaleY =
+        this.getBaseline(jaw).scale.y * chinScaleY * jawScaleY * jawAdv.height * chinAdv.height;
+      const resultScaleZ = this.getBaseline(jaw).scale.z * jawScaleZ * jawAdv.depth * chinAdv.depth;
+      const resultPosY =
+        this.getBaseline(jaw).position.y -
+        (this.config.chinShape - 1) * 0.03 +
+        jawOffsetY +
+        jawAdv.posY +
+        chinAdv.posY;
+
+      jaw.scale.set(resultScaleX, resultScaleY, resultScaleZ);
       jaw.position.set(
-        baseline.position.x,
-        baseline.position.y - (this.config.chinShape - 1) * 0.04,
-        baseline.position.z + 0.02 - 0.05 + 0.05
+        this.getBaseline(jaw).position.x,
+        resultPosY,
+        this.getBaseline(jaw).position.z + jawAdv.posZ + chinAdv.posZ
       );
+
+      if (this.lastJawDebugValue !== jawValue) {
+        this.lastJawDebugValue = jawValue;
+        console.warn('[JAW DEBUG]', {
+          value: jawValue,
+          normalizedValue: jawT,
+          baselineScale: this.getBaseline(jaw).scale.clone(),
+          resultingScale: jaw.scale.clone(),
+          baselinePosition: this.getBaseline(jaw).position.clone(),
+          resultingPosition: jaw.position.clone(),
+        });
+      }
     }
 
     const cheekLeft = this.faceParts.cheeks.left;
     const cheekRight = this.faceParts.cheeks.right;
     if (cheekLeft && cheekRight) {
-      const leftBaseline = this.baselineTransforms.get(cheekLeft) ?? {
-        position: cheekLeft.position.clone(),
-        rotation: cheekLeft.rotation.clone(),
-        scale: cheekLeft.scale.clone(),
+      const adv = {
+        size: this.advancedValue('cheekSize'),
+        width: this.advancedValue('cheekWidth'),
+        height: this.advancedValue('cheekHeight'),
+        depth: this.advancedValue('cheekDepth'),
+        spacing: this.advancedValue('cheekSpacing'),
+        posY: this.advancedValue('cheekPositionY'),
+        posZ: this.advancedValue('cheekPositionZ'),
       };
-      const rightBaseline = this.baselineTransforms.get(cheekRight) ?? {
-        position: cheekRight.position.clone(),
-        rotation: cheekRight.rotation.clone(),
-        scale: cheekRight.scale.clone(),
-      };
+      const leftBaseline = this.getBaseline(cheekLeft);
+      const rightBaseline = this.getBaseline(cheekRight);
+      const spacingOffset = (adv.spacing - 1) * 0.05;
+
+      cheekLeft.scale.set(
+        leftBaseline.scale.x * adv.size * adv.width,
+        leftBaseline.scale.y * adv.size * adv.height,
+        leftBaseline.scale.z * adv.size * adv.depth
+      );
+      cheekRight.scale.set(
+        rightBaseline.scale.x * adv.size * adv.width,
+        rightBaseline.scale.y * adv.size * adv.height,
+        rightBaseline.scale.z * adv.size * adv.depth
+      );
       cheekLeft.position.set(
-        leftBaseline.position.x,
-        leftBaseline.position.y,
-        leftBaseline.position.z
+        leftBaseline.position.x - spacingOffset,
+        leftBaseline.position.y + adv.posY,
+        leftBaseline.position.z + adv.posZ
       );
       cheekRight.position.set(
-        rightBaseline.position.x,
-        rightBaseline.position.y,
-        rightBaseline.position.z
+        rightBaseline.position.x + spacingOffset,
+        rightBaseline.position.y + adv.posY,
+        rightBaseline.position.z + adv.posZ
       );
-      cheekLeft.scale.set(leftBaseline.scale.x, leftBaseline.scale.y, leftBaseline.scale.z);
-      cheekRight.scale.set(rightBaseline.scale.x, rightBaseline.scale.y, rightBaseline.scale.z);
     }
 
     const eyeLeftWhite = this.faceParts.eyes.left.white;
     const eyeRightWhite = this.faceParts.eyes.right.white;
     if (eyeLeftWhite && eyeRightWhite) {
-      const leftBaseline = this.baselineTransforms.get(eyeLeftWhite) ?? {
-        position: eyeLeftWhite.position.clone(),
-        rotation: eyeLeftWhite.rotation.clone(),
-        scale: eyeLeftWhite.scale.clone(),
+      const eyeSizeValue = clampFaceParameterValue('eyeSize', this.config.eyeSize);
+      const eyeSpacingValue = clampFaceParameterValue('eyeSpacing', this.config.eyeSpacing);
+      const eyeAdv = {
+        width: this.advancedValue('eyeWidth'),
+        height: this.advancedValue('eyeHeight'),
+        depth: this.advancedValue('eyeDepth'),
+        posY: this.advancedValue('eyePositionY'),
+        posZ: this.advancedValue('eyePositionZ'),
       };
-      const rightBaseline = this.baselineTransforms.get(eyeRightWhite) ?? {
-        position: eyeRightWhite.position.clone(),
-        rotation: eyeRightWhite.rotation.clone(),
-        scale: eyeRightWhite.scale.clone(),
+      const spacingStride = 0.052 + (1 - eyeSpacingValue) * 0.056;
+
+      const applyEyeAssembly = (
+        white: THREE.Mesh,
+        iris: THREE.Mesh | undefined,
+        eyelid: THREE.Mesh | undefined,
+        sideSign: 1 | -1
+      ) => {
+        const whiteBaseline = this.getBaseline(white);
+        const centerX = sideSign * spacingStride;
+        white.position.set(
+          centerX,
+          whiteBaseline.position.y + eyeAdv.posY,
+          whiteBaseline.position.z + eyeAdv.posZ
+        );
+        white.scale.set(
+          whiteBaseline.scale.x * eyeSizeValue * eyeAdv.width,
+          whiteBaseline.scale.y * eyeSizeValue * eyeAdv.height,
+          whiteBaseline.scale.z * eyeSizeValue * eyeAdv.depth
+        );
+
+        if (iris) {
+          const irisBaseline = this.getBaseline(iris);
+          iris.position.set(
+            white.position.x,
+            irisBaseline.position.y + eyeAdv.posY,
+            irisBaseline.position.z + eyeAdv.posZ
+          );
+          iris.scale.set(
+            irisBaseline.scale.x * eyeSizeValue * eyeAdv.width,
+            irisBaseline.scale.y * eyeSizeValue * eyeAdv.height,
+            irisBaseline.scale.z * eyeSizeValue * eyeAdv.depth
+          );
+        }
+
+        if (eyelid) {
+          const eyelidBaseline = this.getBaseline(eyelid);
+          eyelid.position.set(
+            white.position.x,
+            eyelidBaseline.position.y + eyeAdv.posY,
+            eyelidBaseline.position.z + eyeAdv.posZ
+          );
+          eyelid.scale.set(
+            eyelidBaseline.scale.x * eyeSizeValue * eyeAdv.width,
+            eyelidBaseline.scale.y * eyeSizeValue * eyeAdv.height,
+            eyelidBaseline.scale.z * eyeSizeValue * eyeAdv.depth
+          );
+        }
       };
-      const eyeSpacing = clampFaceParameterValue('eyeSpacing', this.config.eyeSpacing);
-      const eyeStride = 0.052 + (1 - eyeSpacing) * 0.056;
-      eyeLeftWhite.position.set(-eyeStride, leftBaseline.position.y, leftBaseline.position.z);
-      eyeRightWhite.position.set(eyeStride, rightBaseline.position.y, rightBaseline.position.z);
-      const eyeScale = 0.9 + eyeSpacing * 0.44;
-      eyeLeftWhite.scale.set(
-        leftBaseline.scale.x * eyeScale,
-        leftBaseline.scale.y * eyeScale,
-        leftBaseline.scale.z * (0.95 + eyeSpacing * 0.25)
-      );
-      eyeRightWhite.scale.set(
-        rightBaseline.scale.x * eyeScale,
-        rightBaseline.scale.y * eyeScale,
-        rightBaseline.scale.z * (0.95 + eyeSpacing * 0.25)
-      );
 
       const irisLeft = this.faceParts.eyes.left.iris;
       const irisRight = this.faceParts.eyes.right.iris;
-      if (irisLeft && irisRight) {
-        const leftIrisBaseline = this.baselineTransforms.get(irisLeft) ?? {
-          position: irisLeft.position.clone(),
-          rotation: irisLeft.rotation.clone(),
-          scale: irisLeft.scale.clone(),
-        };
-        const rightIrisBaseline = this.baselineTransforms.get(irisRight) ?? {
-          position: irisRight.position.clone(),
-          rotation: irisRight.rotation.clone(),
-          scale: irisRight.scale.clone(),
-        };
-        irisLeft.position.set(-eyeStride, leftIrisBaseline.position.y, leftIrisBaseline.position.z);
-        irisRight.position.set(
-          eyeStride,
-          rightIrisBaseline.position.y,
-          rightIrisBaseline.position.z
-        );
-        irisLeft.scale.set(
-          leftIrisBaseline.scale.x * eyeScale,
-          leftIrisBaseline.scale.y * eyeScale,
-          leftIrisBaseline.scale.z * 1.05
-        );
-        irisRight.scale.set(
-          rightIrisBaseline.scale.x * eyeScale,
-          rightIrisBaseline.scale.y * eyeScale,
-          rightIrisBaseline.scale.z * 1.05
-        );
-      }
-
       const leftEyelid = this.faceParts.eyes.left.eyelid;
       const rightEyelid = this.faceParts.eyes.right.eyelid;
-      if (leftEyelid && rightEyelid) {
-        const leftEyelidBaseline = this.baselineTransforms.get(leftEyelid) ?? {
-          position: leftEyelid.position.clone(),
-          rotation: leftEyelid.rotation.clone(),
-          scale: leftEyelid.scale.clone(),
-        };
-        const rightEyelidBaseline = this.baselineTransforms.get(rightEyelid) ?? {
-          position: rightEyelid.position.clone(),
-          rotation: rightEyelid.rotation.clone(),
-          scale: rightEyelid.scale.clone(),
-        };
-        leftEyelid.position.set(
-          -eyeStride,
-          leftEyelidBaseline.position.y,
-          leftEyelidBaseline.position.z
-        );
-        rightEyelid.position.set(
-          eyeStride,
-          rightEyelidBaseline.position.y,
-          rightEyelidBaseline.position.z
-        );
-        leftEyelid.scale.set(
-          leftEyelidBaseline.scale.x * eyeScale,
-          leftEyelidBaseline.scale.y * eyeScale,
-          leftEyelidBaseline.scale.z * 1.05
-        );
-        rightEyelid.scale.set(
-          rightEyelidBaseline.scale.x * eyeScale,
-          rightEyelidBaseline.scale.y * eyeScale,
-          rightEyelidBaseline.scale.z * 1.05
-        );
+
+      applyEyeAssembly(eyeLeftWhite, irisLeft, leftEyelid, -1);
+      applyEyeAssembly(eyeRightWhite, irisRight, rightEyelid, 1);
+
+      if (this.lastEyeDebugValue !== eyeSizeValue) {
+        this.lastEyeDebugValue = eyeSizeValue;
+        console.warn('[EYE SIZE DEBUG]', {
+          value: eyeSizeValue,
+          spacing: eyeSpacingValue,
+          left: {
+            whiteScale: eyeLeftWhite.scale.clone(),
+            irisScale: irisLeft?.scale.clone(),
+            eyelidScale: leftEyelid?.scale.clone(),
+            whitePosition: eyeLeftWhite.position.clone(),
+            irisPosition: irisLeft?.position.clone(),
+          },
+          right: {
+            whiteScale: eyeRightWhite.scale.clone(),
+            irisScale: irisRight?.scale.clone(),
+            eyelidScale: rightEyelid?.scale.clone(),
+            whitePosition: eyeRightWhite.position.clone(),
+            irisPosition: irisRight?.position.clone(),
+          },
+          affectedObjects: [
+            'eye-white-left',
+            'iris-left',
+            'eyelid-left',
+            'eye-white-right',
+            'iris-right',
+            'eyelid-right',
+          ],
+        });
       }
     }
 
     const browLeft = this.faceParts.brows.left;
     const browRight = this.faceParts.brows.right;
     if (browLeft && browRight) {
-      const eyeSpacing = clampFaceParameterValue('eyeSpacing', this.config.eyeSpacing);
       const brow = clampFaceParameterValue('brow', this.config.brow);
-      const eyeStride = 0.052 + (1 - eyeSpacing) * 0.056;
-      const baseLeftX = this.baselineTransforms.get(browLeft)?.position.x ?? browLeft.position.x;
-      const baseRightX = this.baselineTransforms.get(browRight)?.position.x ?? browRight.position.x;
+      const browAdv = {
+        width: this.advancedValue('browWidth'),
+        thickness: this.advancedValue('browThickness'),
+        spacing: this.advancedValue('browSpacing'),
+        posY: this.advancedValue('browPositionY'),
+        angle: this.advancedValue('browAngle'),
+      };
+      const leftBaseline = this.getBaseline(browLeft);
+      const rightBaseline = this.getBaseline(browRight);
       const browLift = 0.07 + (brow - 0.5) * 0.05;
-      const baseLeftScaleX = this.baselineTransforms.get(browLeft)?.scale.x ?? browLeft.scale.x;
-      const baseRightScaleX = this.baselineTransforms.get(browRight)?.scale.x ?? browRight.scale.x;
-      browLeft.position.set(-eyeStride + (baseLeftX + 0.06) * 0.1, browLift, browLeft.position.z);
-      browRight.position.set(eyeStride + (baseRightX - 0.06) * 0.1, browLift, browRight.position.z);
-      browLeft.scale.x = baseLeftScaleX * (0.98 + brow * 0.52);
-      browRight.scale.x = baseRightScaleX * (0.98 + brow * 0.52);
-      browLeft.rotation.z = 0.34 + (brow - 1) * 0.12;
-      browRight.rotation.z = -0.34 - (brow - 1) * 0.12;
+      const spacingOffset = (browAdv.spacing - 1) * 0.03;
+      const angleRad = (browAdv.angle * Math.PI) / 180;
+
+      browLeft.scale.set(
+        leftBaseline.scale.x * browAdv.width * (0.98 + brow * 0.52),
+        leftBaseline.scale.y * browAdv.thickness,
+        leftBaseline.scale.z
+      );
+      browRight.scale.set(
+        rightBaseline.scale.x * browAdv.width * (0.98 + brow * 0.52),
+        rightBaseline.scale.y * browAdv.thickness,
+        rightBaseline.scale.z
+      );
+      browLeft.position.set(
+        leftBaseline.position.x - spacingOffset,
+        browLift + browAdv.posY,
+        leftBaseline.position.z
+      );
+      browRight.position.set(
+        rightBaseline.position.x + spacingOffset,
+        browLift + browAdv.posY,
+        rightBaseline.position.z
+      );
+      browLeft.rotation.z = leftBaseline.rotation.z + angleRad;
+      browRight.rotation.z = rightBaseline.rotation.z - angleRad;
     }
 
     const nose = this.faceParts.nose;
     if (nose) {
       const noseSize = clampFaceParameterValue('nose', this.config.nose);
-      const baseline = this.baselineTransforms.get(nose) ?? {
-        position: nose.position.clone(),
-        rotation: nose.rotation.clone(),
-        scale: nose.scale.clone(),
+      const noseAdv = {
+        width: this.advancedValue('noseWidth'),
+        height: this.advancedValue('noseHeight'),
+        depth: this.advancedValue('noseDepth'),
+        posY: this.advancedValue('nosePositionY'),
+        posZ: this.advancedValue('nosePositionZ'),
       };
+      const baseline = this.getBaseline(nose);
       nose.scale.set(
-        (baseline.scale.x * (1.06 + noseSize * 0.92)) / 0.95,
-        (baseline.scale.y * (1.18 + noseSize * 1.06)) / 0.98,
-        (baseline.scale.z * (0.92 + (noseSize - 0.5) * 1.08)) / 1.1
+        ((baseline.scale.x * (1.06 + noseSize * 0.92)) / 0.95) * noseAdv.width,
+        ((baseline.scale.y * (1.18 + noseSize * 1.06)) / 0.98) * noseAdv.height,
+        ((baseline.scale.z * (0.92 + (noseSize - 0.5) * 1.08)) / 1.1) * noseAdv.depth
       );
       nose.position.set(
         baseline.position.x,
-        baseline.position.y + (noseSize - 0.5) * 0.03,
-        baseline.position.z + (noseSize - 0.5) * 0.08
+        baseline.position.y + (noseSize - 0.5) * 0.03 + noseAdv.posY,
+        baseline.position.z + (noseSize - 0.5) * 0.08 + noseAdv.posZ
       );
     }
 
     const mouth = this.faceParts.mouth;
     if (mouth) {
       const mouthSize = clampFaceParameterValue('mouth', this.config.mouth);
-      const baseline = this.baselineTransforms.get(mouth) ?? {
-        position: mouth.position.clone(),
-        rotation: mouth.rotation.clone(),
-        scale: mouth.scale.clone(),
+      const mouthAdv = {
+        width: this.advancedValue('mouthWidth'),
+        height: this.advancedValue('mouthHeight'),
+        depth: this.advancedValue('mouthDepth'),
+        posY: this.advancedValue('mouthPositionY'),
+        posZ: this.advancedValue('mouthPositionZ'),
       };
+      const baseline = this.getBaseline(mouth);
       const mouthScaleX = 1.06 + (mouthSize - 0.5) * 1.15;
       const mouthScaleY = 0.86 + (mouthSize - 0.5) * 0.5;
       mouth.scale.set(
-        baseline.scale.x * mouthScaleX,
-        baseline.scale.y * mouthScaleY,
-        baseline.scale.z * 1.08
+        baseline.scale.x * mouthScaleX * mouthAdv.width,
+        baseline.scale.y * mouthScaleY * mouthAdv.height,
+        baseline.scale.z * 1.08 * mouthAdv.depth
       );
       mouth.position.set(
         baseline.position.x,
-        baseline.position.y - (mouthSize - 0.5) * 0.012,
-        baseline.position.z + (mouthSize - 0.5) * 0.018
+        baseline.position.y - (mouthSize - 0.5) * 0.012 + mouthAdv.posY,
+        baseline.position.z + (mouthSize - 0.5) * 0.018 + mouthAdv.posZ
       );
       mouth.rotation.z = Math.PI + (mouthSize - 0.5) * 0.75;
+    }
+
+    const hairRoot = this.faceParts.hairRoot;
+    if (hairRoot) {
+      const hairAdv = {
+        scale: this.advancedValue('hairScale'),
+        width: this.advancedValue('hairWidth'),
+        height: this.advancedValue('hairHeight'),
+        depth: this.advancedValue('hairDepth'),
+        posY: this.advancedValue('hairPositionY'),
+        posZ: this.advancedValue('hairPositionZ'),
+      };
+      const baseline = this.getBaseline(hairRoot);
+      hairRoot.scale.set(
+        baseline.scale.x * hairAdv.scale * hairAdv.width,
+        baseline.scale.y * hairAdv.scale * hairAdv.height,
+        baseline.scale.z * hairAdv.scale * hairAdv.depth
+      );
+      hairRoot.position.set(
+        baseline.position.x,
+        baseline.position.y + hairAdv.posY,
+        baseline.position.z + hairAdv.posZ
+      );
     }
 
     const beard = this.root.getObjectByName('beard-part');
@@ -2206,6 +2683,15 @@ export class Golfer {
     return group;
   }
 
+  // CANONICAL GOLFER ORIENTATION
+  // Anatomical forward for this procedural rig is +Z (golfer-local).
+  // Established by the face: nose/eyes/mouth and the chest/placket all face +Z.
+  //   - head/face front  -> +Z
+  //   - chest/torso front -> +Z
+  //   - toes/shoes front  -> +Z
+  //   - knees front       -> +Z
+  // Gameplay rotates ONLY Golfer.root (see setHeading) to face the basket.
+  // Individual body parts are NEVER authored backwards to match a rear camera.
   private build() {
     const look = this.look;
     this.root.clear();
@@ -2267,12 +2753,7 @@ export class Golfer {
       headScale: this.appearance.profile.headScale,
       jawWidth: this.appearance.profile.jawWidth,
       chinShape: this.appearance.profile.chinShape,
-      brow: this.appearance.face.brow,
-      nose: this.appearance.face.nose,
-      eyeSpacing: this.appearance.face.eyeSpacing,
-      mouth: this.appearance.face.mouth,
-      beard: this.appearance.face.beard,
-      stubble: this.appearance.face.stubble,
+      ...this.appearance.face,
     };
     this.face = new Face(faceConfig);
     head.add(this.face.root);
@@ -2290,15 +2771,22 @@ export class Golfer {
       const isRight = side === 1;
       const shoulderName: JointName = isRight ? 'shoulderR' : 'shoulderL';
       const elbowName: JointName = isRight ? 'elbowR' : 'elbowL';
-      const shoulder = this.joint(shoulderName, torso, new THREE.Vector3(side * 0.22, 0.62, 0));
-      const sleeve = limb(0.26, 0.07, this.appearance.shirtColor);
+      // Shoulder pivot at the anatomical shoulder line: upper corner of the
+      // torso (torso local top y=0.62, half-width ~0.19). Pivot sits AT torso
+      // top, slightly inside the silhouette so the arm reads as attached.
+      const shoulder = this.joint(shoulderName, torso, new THREE.Vector3(side * 0.2, 0.6, 0));
+      // Sleeve cap wraps AROUND the pivot (short cap, not a drooping rib-cover).
+      const sleeve = limb(0.16, 0.075, this.appearance.shirtColor);
       sleeve.material = createJerseyMaterial(this.appearance);
+      sleeve.position.set(side * 0.01, 0.03, 0);
       shoulder.add(sleeve);
 
+      // Upper arm originates from BELOW the shoulder pivot, hanging down.
       const upperArm = new THREE.Mesh(
-        new THREE.SphereGeometry(0.085, 12, 10),
-        new THREE.MeshStandardMaterial({ color: this.appearance.shirtColor, roughness: 0.78 })
+        new THREE.CapsuleGeometry(0.062, 0.2, 6, 12),
+        new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.78 })
       );
+      upperArm.geometry.translate(0, -0.16, 0);
       shoulder.add(upperArm);
 
       const elbow = this.joint(elbowName, shoulder, new THREE.Vector3(0, -0.4, 0));
@@ -2339,11 +2827,15 @@ export class Golfer {
       sock.position.y = -0.31;
       knee.add(sock);
 
+      // CANONICAL GOLFER ORIENTATION: anatomical forward is +Z (defined by the
+      // face: nose/eyes/mouth/chest all face +Z). Feet must point toes toward +Z.
+      // Ankle sits near the heel (slightly -Z); toe projects forward (+Z).
       const shoe = new THREE.Mesh(
         new THREE.BoxGeometry(0.14, 0.1, 0.24),
         new THREE.MeshStandardMaterial({ color: this.appearance.shoeColor, roughness: 0.85 })
       );
-      shoe.position.set(0, -0.46, -0.03);
+      shoe.name = isRight ? 'shoe-right' : 'shoe-left';
+      shoe.position.set(0, -0.46, 0.03);
       shoe.castShadow = true;
       knee.add(shoe);
 
@@ -2351,15 +2843,91 @@ export class Golfer {
         new THREE.SphereGeometry(0.07, 10, 8),
         new THREE.MeshStandardMaterial({ color: this.appearance.shoeColor, roughness: 0.8 })
       );
+      toe.name = isRight ? 'toe-right' : 'toe-left';
       toe.scale.set(1, 0.72, 1.3);
-      toe.position.set(0, -0.47, -0.14);
+      toe.position.set(0, -0.47, 0.14);
       knee.add(toe);
     }
 
+    // ONE held disc, parented to the throwing (right) hand chain so it follows
+    // the arm. Sized/positioned to sit in the hand rather than a giant slab at
+    // the wrist. Do NOT also call equipAccessory('disc') here — that creates a
+    // second overlapping disc (the duplicate seen in the BODY preview).
     this.disc = createDiscVisual(0xe03a2f);
     this.disc.name = 'held-disc';
+    this.disc.rotation.set(Math.PI / 2, 0, 0);
+    this.disc.scale.setScalar(0.5);
+    this.disc.position.set(0, -0.05, 0.06);
     this.hand.add(this.disc);
-    this.equipAccessory('disc', { visible: true });
+
+    if (import.meta.env.DEV) {
+      // Dev-only canonical-forward helper (+Z). Rotates with Golfer.root.
+      const forwardHelper = new THREE.ArrowHelper(
+        new THREE.Vector3(0, 0, 1),
+        new THREE.Vector3(0, 1.0, 0),
+        0.7,
+        0x22ccff,
+        0.16,
+        0.1
+      );
+      forwardHelper.name = 'forward-axis-helper';
+      this.root.add(forwardHelper);
+
+      // Dev-only shoulder/elbow pivot markers.
+      (['shoulderL', 'shoulderR', 'elbowL', 'elbowR'] as JointName[]).forEach((jn) => {
+        const joint = this.joints.get(jn);
+        if (joint) {
+          const marker = new THREE.AxesHelper(0.14);
+          marker.name = `pivot-marker-${jn}`;
+          joint.add(marker);
+        }
+      });
+
+      this.logArmRigDebug();
+    }
+  }
+
+  private logArmRigDebug() {
+    this.root.updateMatrixWorld(true);
+    const world = (name: JointName) =>
+      this.joints
+        .get(name)
+        ?.getWorldPosition(new THREE.Vector3())
+        .toArray()
+        .map((v) => Number(v.toFixed(3)));
+    const torsoMesh = this.root.getObjectByName('torso-part') as THREE.Mesh | undefined;
+    let torsoWidth: number | undefined;
+    if (torsoMesh) {
+      torsoMesh.geometry.computeBoundingBox();
+      const box = torsoMesh.geometry.boundingBox!.clone().applyMatrix4(torsoMesh.matrixWorld);
+      torsoWidth = Number((box.max.x - box.min.x).toFixed(3));
+    }
+    console.info('[ARM RIG DEBUG]', {
+      torsoWidth,
+      leftShoulderPosition: world('shoulderL'),
+      rightShoulderPosition: world('shoulderR'),
+      leftElbowPosition: world('elbowL'),
+      rightElbowPosition: world('elbowR'),
+      shoulderLocalX: this.joints.get('shoulderL')?.position.x,
+      shoulderLocalY: this.joints.get('shoulderL')?.position.y,
+    });
+
+    // Front/back plane diagnostic (canonical anatomical forward = +Z).
+    if (torsoMesh) {
+      const tb = new THREE.Box3().setFromObject(torsoMesh);
+      const zOf = (name: JointName) =>
+        Number((this.joints.get(name)?.getWorldPosition(new THREE.Vector3()).z ?? 0).toFixed(3));
+      console.info('[ARM PLANE DEBUG]', {
+        anatomicalForwardAxis: '+Z',
+        torsoFront: Number(tb.max.z.toFixed(3)),
+        torsoCenter: Number(((tb.min.z + tb.max.z) / 2).toFixed(3)),
+        torsoBack: Number(tb.min.z.toFixed(3)),
+        leftShoulder: zOf('shoulderL'),
+        leftElbow: zOf('elbowL'),
+        rightShoulder: zOf('shoulderR'),
+        rightElbow: zOf('elbowR'),
+      });
+    }
   }
 
   private applyProfileToRig() {
@@ -2415,12 +2983,7 @@ export class Golfer {
       headScale: profile.headScale,
       jawWidth: profile.jawWidth,
       chinShape: profile.chinShape,
-      brow: this.appearance.face.brow,
-      nose: this.appearance.face.nose,
-      eyeSpacing: this.appearance.face.eyeSpacing,
-      mouth: this.appearance.face.mouth,
-      beard: this.appearance.face.beard,
-      stubble: this.appearance.face.stubble,
+      ...this.appearance.face,
     });
   }
 
