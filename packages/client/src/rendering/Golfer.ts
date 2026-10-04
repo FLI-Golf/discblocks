@@ -145,7 +145,7 @@ export interface BodyProfile {
   // Shorts garment (baseline clothing). NOT the anatomical pelvis.
   shortsWidth: number;
   shortsLength: number;
-  // How high the waistband rises up the torso (1 = waist, higher = covers torso).
+  // Vertical offset of the WHOLE garment up/down the torso (0 = baseline).
   shortsRise: number;
   // How far the shorts sit forward (Z) toward the front of the body.
   shortsForward: number;
@@ -669,7 +669,7 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     palmDepth: 1.0,
     shortsWidth: 1.0,
     shortsLength: 1.0,
-    shortsRise: 1.0,
+    shortsRise: 0.0,
     shortsForward: 0.0,
     shortsDepth: 1.0,
     shortLegWidth: 1.0,
@@ -715,7 +715,7 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     palmDepth: 0.92,
     shortsWidth: 1.0,
     shortsLength: 1.0,
-    shortsRise: 1.0,
+    shortsRise: 0.0,
     shortsForward: 0.0,
     shortsDepth: 1.0,
     shortLegWidth: 1.0,
@@ -761,7 +761,7 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     palmDepth: 0.94,
     shortsWidth: 1.0,
     shortsLength: 1.0,
-    shortsRise: 1.0,
+    shortsRise: 0.0,
     shortsForward: 0.0,
     shortsDepth: 1.0,
     shortLegWidth: 1.0,
@@ -3431,28 +3431,30 @@ export class Golfer {
       );
       // shortsForward shifts the WHOLE garment (waist + legs) toward the front.
       shortsRoot.position.z = profile.shortsForward ?? 0;
+      // shortsRise shifts the WHOLE garment up/down the torso (no stretch).
+      shortsRoot.position.y = profile.shortsRise ?? 0;
     }
     const shortsWaist = this.root.getObjectByName('shorts-waist');
     if (shortsWaist) {
-      const rise = profile.shortsRise ?? 1;
-      // shortsLength scales overall garment height; shortsRise lifts + stretches
-      // the waistband up the torso. Cap the rise so the waist closes the gap to
-      // the jersey but does not engulf the chest. As the waist rises it also
-      // deepens (front AND back, Z) so it wraps the torso.
-      const cappedRise = Math.min(rise, 1.6);
+      // shortsLength scales overall garment height via the waist section too.
       shortsWaist.scale.set(
         1.18 * (profile.shortsWidth ?? 1),
-        1.0 * (profile.shortsLength ?? 1) * cappedRise,
-        0.94 * (1 + (cappedRise - 1) * 0.6) * 1.17
+        1.0 * (profile.shortsLength ?? 1),
+        0.94 * 1.17
       );
-      shortsWaist.position.y = 0.12 * cappedRise;
+      shortsWaist.position.y = 0.12;
     }
     ['shorts-left', 'shorts-right'].forEach((name) => {
       const leg = this.root.getObjectByName(name);
       if (leg) {
         // Only length here — width is applied to the whole shorts-root so it
-        // matches shortsForward's scope (waist + both legs).
-        leg.scale.set(1, profile.shortLegLength ?? 1, 1);
+        // matches shortsForward's scope (waist + both legs). The capsule
+        // scales from its center, so shift it down by half the added height
+        // (capsule half-height = 0.24) to keep the top anchored at the hip
+        // line: lengthening extends DOWNWARD only.
+        const legLen = profile.shortLegLength ?? 1;
+        leg.scale.set(1, legLen, 1);
+        leg.position.y = -0.06 - 0.24 * (legLen - 1);
       }
     });
 

@@ -480,7 +480,8 @@ function appearanceSlider(
   const span = document.createElement('span');
   span.textContent = label;
   const out = document.createElement('output');
-  const get = () => golfer.appearance.profile?.[key] ?? 1;
+  const get = () =>
+    golfer.appearance.profile?.[key] ?? (key === 'shortsRise' || key === 'shortsForward' ? 0 : 1);
   out.textContent = get().toFixed(2);
   const input = document.createElement('input');
   input.type = 'range';
@@ -1091,7 +1092,7 @@ makeSection(featureLeft, 'shorts', 'Shorts / Clothing', (c) => {
   c.appendChild(shortsLabel);
   c.appendChild(appearanceSlider('Shorts Width', 'shortsWidth', 0.6, 2.2));
   c.appendChild(appearanceSlider('Shorts Length', 'shortsLength', 0.4, 2.2));
-  c.appendChild(appearanceSlider('Shorts Rise (Up Torso)', 'shortsRise', 0.5, 3));
+  c.appendChild(appearanceSlider('Shorts Up / Down', 'shortsRise', -0.3, 0.3));
   c.appendChild(appearanceSlider('Shorts Forward / Back', 'shortsForward', -0.15, 0.15));
   c.appendChild(appearanceSlider('Shorts Depth', 'shortsDepth', 0.2, 3));
   c.appendChild(appearanceSlider('Short Leg Width', 'shortLegWidth', 0.5, 2.2));
