@@ -288,8 +288,11 @@ describe('Game Components', () => {
 
     const hairRoot = face.root.getObjectByName('hair-root') as THREE.Group;
     expect(hairRoot).not.toBeNull();
-    expect(hairRoot.children.map((child) => child.name)).toContain('hair-buzz-shell');
-    expect(hairRoot.children.some((child) => child.name === 'hair-buzz-shell')).toBe(true);
+    // Three-part architecture: crown (top), back, and side pieces.
+    const names = hairRoot.children.map((child) => child.name);
+    expect(names).toContain('hair-crown');
+    expect(names).toContain('hair-back');
+    expect(names.some((n) => n === 'hair-side-left' || n === 'hair-side-right')).toBe(true);
     expect(
       hairRoot.children.some(
         (child) => child instanceof THREE.Mesh && child.geometry.type === 'BoxGeometry'
@@ -432,11 +435,10 @@ describe('Game Components', () => {
       const collar = golfer.root.getObjectByName('collar-part') as THREE.Mesh | undefined;
       const placket = golfer.root.getObjectByName('placket-part') as THREE.Mesh | undefined;
       expect(collar).not.toBeUndefined();
-      expect(placket).not.toBeUndefined();
+      // The decorative placket was removed (m600 fix); it must stay gone.
+      expect(placket).toBeUndefined();
       expect(collar?.material).toBeTruthy();
-      expect(placket?.material).toBeTruthy();
       expect((collar?.material as THREE.MeshStandardMaterial).color).toBeTruthy();
-      expect((placket?.material as THREE.MeshStandardMaterial).color).toBeTruthy();
       golfer.dispose();
     }).not.toThrow();
   });

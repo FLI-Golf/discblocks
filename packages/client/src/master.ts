@@ -13,6 +13,7 @@ import {
 } from '@/rendering/avatar/authoring';
 import { AppearancePanel } from '@/ui/AppearancePanel';
 import { DEFAULT_BRANDING, resolveBranding } from '@/game/branding';
+import { AuthoringSlider } from './masterAuthoring';
 
 const canvas = document.querySelector<HTMLCanvasElement>('#canvas')!;
 let renderer: THREE.WebGLRenderer;
@@ -60,6 +61,150 @@ const golfer = new Golfer({ ...DEFAULT_GOLFER_APPEARANCE });
 golfer.applyBranding(resolveBranding(null));
 scene.add(golfer.root);
 
+// ---- Diagnostic visibility (DEV-ONLY editor state) ----
+// Lives ONLY here in the /master page — never in BodyProfile, appearance,
+// draft, pose, team, or branding. Not persisted; page reload resets it.
+const diagnosticVisibility = { hideBelt: false, hideShorts: false, hideJersey: false };
+
+// Meshes that carry the jersey CanvasTexture AND provide the torso/waist body
+// form, plus the accent clothing pieces (collar/placket) that would otherwise
+// stay red. We keep the body-form meshes VISIBLE but neutralize texture/accent
+// color for a readable body. collar/placket have no map (map=null) — only their
+// color is stashed/neutralized/restored.
+const JERSEY_MESHES = [
+  'torso-part',
+  'lower-torso-part',
+  'sleeve-left',
+  'sleeve-right',
+  'collar-part',
+  'placket-part',
+];
+const INSPECTION_COLOR = 0xd9b8a6; // neutral skin inspection tone
+
+// Bypass (or restore) the jersey texture on the body-form meshes. The original
+// map/color are stashed on material.userData so OFF restores them exactly. A
+// rebuild creates fresh materials (with the map), so re-running this after a
+// rebuild re-applies the bypass cleanly.
+function applyJerseyInspection() {
+  for (const name of JERSEY_MESHES) {
+    const mesh = golfer.root.getObjectByName(name) as THREE.Mesh | undefined;
+    if (!mesh) continue;
+    const mat = mesh.material as THREE.MeshStandardMaterial;
+    if (!mat) continue;
+    if (diagnosticVisibility.hideJersey) {
+      if (!mat.userData.__diagStash) {
+        mat.userData.__diagStash = { map: mat.map, color: mat.color.getHex() };
+      }
+      mat.map = null;
+      mat.color.setHex(INSPECTION_COLOR);
+      mat.needsUpdate = true;
+    } else if (mat.userData.__diagStash) {
+      const stash = mat.userData.__diagStash as { map: THREE.Texture | null; color: number };
+      mat.map = stash.map;
+      mat.color.setHex(stash.color);
+      mat.needsUpdate = true;
+      delete mat.userData.__diagStash;
+    }
+  }
+}
+
+// Resolve the CURRENT garment groups from the CURRENT rig (never retain stale
+// references across rebuilds) and apply the diagnostic visibility state.
+function applyDiagnosticVisibility() {
+  const belt = golfer.root.getObjectByName('belt-root');
+  if (belt) belt.visible = !diagnosticVisibility.hideBelt;
+  const shorts = golfer.root.getObjectByName('shorts-root');
+  if (shorts) shorts.visible = !diagnosticVisibility.hideShorts;
+  applyJerseyInspection();
+}
+
+// setAppearance() rebuilds the rig, recreating belt-root/shorts-root visible.
+// Wrap it once so EVERY rebuild (from any call site) reapplies the diagnostic
+// visibility afterward — hidden garments stay hidden across slider changes.
+const _setAppearance = golfer.setAppearance.bind(golfer);
+golfer.setAppearance = (appearance: typeof golfer.appearance) => {
+  _setAppearance(appearance);
+  applyDiagnosticVisibility();
+  applyFaceDiagnosticVisibility();
+};
+
+// ---- FACE diagnostic visibility (DEV-ONLY editor state) ----
+// Same lesson as the body diagnostics: a central editor-only state, one apply
+// function that re-resolves CURRENT objects from the CURRENT hierarchy, and a
+// reapply hook after every rebuild. Never serialized into saved appearance,
+// baseline, profile, or pose.
+// Individual per-feature hide overrides + a mutually-exclusive inspection MODE.
+// The mode NEVER rewrites the individual overrides — final visibility = mode
+// rules + individual overrides. Individual state is preserved across mode swaps
+// and rebuilds. Editor-only; never serialized.
+type FaceInspectionMode = 'normal' | 'face-only' | 'head-shell-only';
+const faceDiagnosticVisibility = {
+  mode: 'normal' as FaceInspectionMode,
+  hideHair: false,
+  hideFacialHair: false,
+  hideEars: false,
+  hideBrows: false,
+  hideEyes: false,
+  hideNose: false,
+  hideMouth: false,
+  hideCheeks: false,
+  hideJaw: false,
+  hideChin: false,
+};
+
+// Object groups resolved from the live face hierarchy (audited, not assumed).
+const FACE_GROUPS: Record<string, string[]> = {
+  hideEars: ['ear-left', 'ear-right'],
+  hideBrows: ['brow-left', 'brow-right'],
+  hideEyes: [
+    'eye-white-left',
+    'eye-white-right',
+    'iris-left',
+    'iris-right',
+    'eyelid-left',
+    'eyelid-right',
+  ],
+  hideNose: ['nose-part'],
+  hideMouth: ['mouth-part'],
+  hideCheeks: ['cheek-left', 'cheek-right'],
+  hideJaw: ['jaw-part'],
+  hideFacialHair: ['beard-part', 'stubble-part'],
+};
+
+function setVisible(name: string, visible: boolean) {
+  const obj = golfer.root.getObjectByName(name);
+  if (obj) obj.visible = visible;
+}
+
+function applyFaceDiagnosticVisibility() {
+  const s = faceDiagnosticVisibility;
+  const mode = s.mode;
+  // Per-feature hidden = individual override OR the mode's hide-set.
+  const hideHair = s.hideHair || mode !== 'normal';
+  const hideFacial = s.hideFacialHair || mode !== 'normal';
+  const hideEars = s.hideEars || mode !== 'normal';
+  const hideBrows = s.hideBrows || mode === 'head-shell-only';
+  const hideEyes = s.hideEyes || mode === 'head-shell-only';
+  const hideNose = s.hideNose || mode === 'head-shell-only';
+  const hideMouth = s.hideMouth || mode === 'head-shell-only';
+  const hideCheeks = s.hideCheeks || mode === 'head-shell-only';
+  const hideJaw = s.hideJaw || mode === 'head-shell-only';
+  // (chin is part of the jaw mesh in this procedural head; no separate mesh.)
+
+  const hair = golfer.root.getObjectByName('hair-root');
+  if (hair) hair.visible = !hideHair;
+  FACE_GROUPS.hideFacialHair.forEach((n) => setVisible(n, !hideFacial));
+  FACE_GROUPS.hideEars.forEach((n) => setVisible(n, !hideEars));
+  FACE_GROUPS.hideBrows.forEach((n) => setVisible(n, !hideBrows));
+  FACE_GROUPS.hideEyes.forEach((n) => setVisible(n, !hideEyes));
+  setVisible('nose-part', !hideNose);
+  setVisible('mouth-part', !hideMouth);
+  FACE_GROUPS.hideCheeks.forEach((n) => setVisible(n, !hideCheeks));
+  setVisible('jaw-part', !hideJaw);
+  // chin is a sub-region of the jaw mesh in this procedural head (no separate
+  // chin mesh) — hideChin maps onto the jaw detail region only when one exists.
+}
+
 const ground = new THREE.Mesh(
   new THREE.CircleGeometry(6, 32),
   new THREE.MeshStandardMaterial({ color: 0x0f1c2e })
@@ -77,8 +222,16 @@ const appearanceSliders: Array<() => void> = [];
 const draft = {
   lAbduction: 0,
   rAbduction: 0,
+  lFlexion: 0,
+  rFlexion: 0,
+  lTwist: 0,
+  rTwist: 0,
+  lElbow: 0,
+  rElbow: 0,
   lHipFlex: 0,
   lHipAbd: 0,
+  lHipRot: 0,
+  rHipRot: 0,
   lKnee: 0,
   rHipFlex: 0,
   rHipAbd: 0,
@@ -208,11 +361,29 @@ function draftToPose(id: string, name: string): GolferPose {
   return {
     id,
     name,
-    leftShoulder: { abduction: d(draft.lAbduction) },
-    rightShoulder: { abduction: d(draft.rAbduction) },
-    leftHip: { flexion: d(draft.lHipFlex), abduction: d(draft.lHipAbd) },
+    leftShoulder: {
+      abduction: d(draft.lAbduction),
+      flexion: d(draft.lFlexion),
+      rotation: d(draft.lTwist),
+    },
+    rightShoulder: {
+      abduction: d(draft.rAbduction),
+      flexion: d(draft.rFlexion),
+      rotation: d(draft.rTwist),
+    },
+    leftElbow: { flexion: d(draft.lElbow) },
+    rightElbow: { flexion: d(draft.rElbow) },
+    leftHip: {
+      flexion: d(draft.lHipFlex),
+      abduction: d(draft.lHipAbd),
+      rotation: d(draft.lHipRot),
+    },
     leftKnee: { flexion: d(draft.lKnee) },
-    rightHip: { flexion: d(draft.rHipFlex), abduction: d(draft.rHipAbd) },
+    rightHip: {
+      flexion: d(draft.rHipFlex),
+      abduction: d(draft.rHipAbd),
+      rotation: d(draft.rHipRot),
+    },
     rightKnee: { flexion: d(draft.rKnee) },
     torso: { rotation: d(draft.torsoCoil), lean: d(draft.torsoLean) },
     pelvis: {
@@ -436,6 +607,7 @@ function appearanceSlider(
     | 'legLength'
     | 'legTaper'
     | 'hipWidth'
+    | 'hipDepth'
     | 'torsoLength'
     | 'torsoTaper'
     | 'chestWidth'
@@ -447,6 +619,7 @@ function appearanceSlider(
     | 'headVertical'
     | 'armLength'
     | 'thighLength'
+    | 'thighThickness'
     | 'armThickness'
     | 'neckWidth'
     | 'neckLength'
@@ -454,6 +627,8 @@ function appearanceSlider(
     | 'neckForward'
     | 'trapeziusWidth'
     | 'trapeziusHeight'
+    | 'trapeziusDepth'
+    | 'trapeziusVertical'
     | 'shoulderWidth'
     | 'shoulderInOut'
     | 'shoulderVertical'
@@ -508,6 +683,37 @@ function appearanceSlider(
   return row;
 }
 
+// Adaptive-range authoring slider for a BodyProfile key. Reuses the SAME
+// profile update path as appearanceSlider; only the editor range is new.
+type ProfileKey = Parameters<typeof appearanceSlider>[1];
+function authoringProfileSlider(
+  label: string,
+  key: ProfileKey,
+  cfg: { min: number; max: number; step?: number; hardMin?: number; hardMax?: number }
+): HTMLElement {
+  const get = () =>
+    golfer.appearance.profile?.[key] ?? (key === 'shortsRise' || key === 'shortsForward' ? 0 : 1);
+  const slider = new AuthoringSlider({
+    id: key,
+    label,
+    defaultMin: cfg.min,
+    defaultMax: cfg.max,
+    defaultStep: cfg.step ?? 0.01,
+    hardMin: cfg.hardMin,
+    hardMax: cfg.hardMax,
+    get,
+    onChange: (v) => {
+      const profile = { ...golfer.appearance.profile, [key]: v };
+      golfer.setAppearance({ ...golfer.appearance, profile });
+      applyDraft();
+      markEdited();
+      frameCamera();
+    },
+  });
+  appearanceSliders.push(() => slider.sync());
+  return slider.el;
+}
+
 function slider(label: string, get: () => number, set: (v: number) => void, min = 0, max = 140) {
   const row = document.createElement('label');
   row.className = 'row';
@@ -544,6 +750,21 @@ function comingSoonRow(label: string): HTMLElement {
   const soon = document.createElement('span');
   soon.className = 'soon';
   soon.textContent = 'Coming Soon';
+  row.append(span, soon);
+  return row;
+}
+
+// Foot Direction note: the foot hangs off the KNEE joint (no dedicated ankle
+// pivot yet), so a true ankle-direction control is blocked until an ankle
+// joint exists. Reported, not faked by rotating the shoe mesh.
+function ankleNoteRow(): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'row';
+  const span = document.createElement('span');
+  span.textContent = 'Foot Direction';
+  const soon = document.createElement('span');
+  soon.className = 'soon';
+  soon.textContent = 'Needs ankle joint';
   row.append(span, soon);
   return row;
 }
@@ -717,6 +938,60 @@ makeSection(featureLeft, 'baselineTools', 'Baseline Tools', (c) => {
 
 // BASELINE DIAGNOSTICS — collapsible joint data for the neutral golfer.
 makeSection(featureLeft, 'baselineDiag', 'Baseline Diagnostics', (c) => {
+  // ---- Development-only visibility toggles (diagnostic state only) ----
+  // These set editor state + reapply via applyDiagnosticVisibility(). State
+  // survives rig rebuilds because setAppearance is wrapped to reapply it.
+  const diagLabel = document.createElement('div');
+  diagLabel.className = 'ftitle';
+  diagLabel.textContent = 'Visibility (dev-only)';
+  c.appendChild(diagLabel);
+
+  const hideBelt = makeToggleRow('Hide Belt', false, (v) => {
+    diagnosticVisibility.hideBelt = v;
+    applyDiagnosticVisibility();
+  });
+  const hideShorts = makeToggleRow('Hide Shorts', false, (v) => {
+    diagnosticVisibility.hideShorts = v;
+    applyDiagnosticVisibility();
+  });
+  const hideJersey = makeToggleRow('Hide Jersey Texture', false, (v) => {
+    diagnosticVisibility.hideJersey = v;
+    applyDiagnosticVisibility();
+  });
+  const bodyOnly = makeToggleRow('Body Only', false, (v) => {
+    diagnosticVisibility.hideBelt = v;
+    diagnosticVisibility.hideShorts = v;
+    diagnosticVisibility.hideJersey = v;
+    (hideBelt.querySelector('input') as HTMLInputElement).checked = v;
+    (hideShorts.querySelector('input') as HTMLInputElement).checked = v;
+    (hideJersey.querySelector('input') as HTMLInputElement).checked = v;
+    applyDiagnosticVisibility();
+  });
+  c.append(hideBelt, hideShorts, hideJersey, bodyOnly);
+
+  // Dev-only live readout so visibility failures are obvious.
+  const diagReadout = document.createElement('div');
+  diagReadout.style.cssText = 'font-size:10px;color:#9fb3cc;margin-top:6px;line-height:1.6;';
+  const updateReadout = () => {
+    const beltV = golfer.root.getObjectByName('belt-root')?.visible;
+    const shortsV = golfer.root.getObjectByName('shorts-root')?.visible;
+    const chestMat = (golfer.root.getObjectByName('torso-part') as THREE.Mesh | undefined)
+      ?.material as THREE.MeshStandardMaterial | undefined;
+    const jerseyActive = chestMat ? chestMat.map !== null : undefined;
+    diagReadout.textContent =
+      `Hide Belt: ${diagnosticVisibility.hideBelt}  |  belt-root visible: ${beltV}\n` +
+      `Hide Shorts: ${diagnosticVisibility.hideShorts}  |  shorts-root visible: ${shortsV}\n` +
+      `Hide Jersey: ${diagnosticVisibility.hideJersey}  |  jersey texture active: ${jerseyActive}`;
+    diagReadout.style.whiteSpace = 'pre-wrap';
+  };
+  const readoutBtn = document.createElement('button');
+  readoutBtn.type = 'button';
+  readoutBtn.textContent = 'Check Visibility State';
+  readoutBtn.style.cssText =
+    'margin-top:4px;padding:4px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:transparent;color:#edf4ff;cursor:pointer;font-size:10px;';
+  readoutBtn.addEventListener('click', updateReadout);
+  c.append(readoutBtn, diagReadout);
+
   const pre = document.createElement('pre');
   pre.style.cssText =
     'font-size:10px;line-height:1.5;color:#9fb3cc;white-space:pre-wrap;word-break:break-all;margin:0 0 8px;';
@@ -731,6 +1006,106 @@ makeSection(featureLeft, 'baselineDiag', 'Baseline Diagnostics', (c) => {
   refreshBtn.addEventListener('click', refresh);
   refresh();
   c.append(pre, refreshBtn);
+});
+
+// FACE DIAGNOSTICS — dev-only visibility isolation for the procedural head.
+// Editor-only state (faceDiagnosticVisibility); never serialized into saved
+// appearance, baseline, profile, or pose. Reapplied after every rebuild via the
+// wrapped setAppearance hook. Body diagnostics and Face diagnostics are separate.
+makeSection(featureLeft, 'faceDiag', 'Face Diagnostics', (c) => {
+  const diagLabel = document.createElement('div');
+  diagLabel.className = 'ftitle';
+  diagLabel.textContent = 'Visibility (dev-only)';
+  c.appendChild(diagLabel);
+
+  const faceToggle = (
+    label: string,
+    key: Exclude<keyof typeof faceDiagnosticVisibility, 'mode'>,
+    onChange?: (v: boolean) => void
+  ) =>
+    makeToggleRow(label, faceDiagnosticVisibility[key], (v) => {
+      faceDiagnosticVisibility[key] = v;
+      onChange?.(v);
+      applyFaceDiagnosticVisibility();
+    });
+
+  c.appendChild(faceToggle('Hide Hair', 'hideHair'));
+  c.appendChild(faceToggle('Hide Facial Hair', 'hideFacialHair'));
+  c.appendChild(faceToggle('Hide Ears', 'hideEars'));
+  c.appendChild(faceToggle('Hide Brows', 'hideBrows'));
+  c.appendChild(faceToggle('Hide Eyes', 'hideEyes'));
+  c.appendChild(faceToggle('Hide Nose', 'hideNose'));
+  c.appendChild(faceToggle('Hide Mouth', 'hideMouth'));
+  c.appendChild(faceToggle('Hide Cheeks', 'hideCheeks'));
+  c.appendChild(faceToggle('Hide Jaw', 'hideJaw'));
+  c.appendChild(faceToggle('Hide Chin', 'hideChin'));
+
+  // Mutually-exclusive INSPECTION MODE (never rewrites the individual
+  // overrides). Only one active at a time.
+  const modeLabel = document.createElement('div');
+  modeLabel.className = 'ftitle';
+  modeLabel.textContent = 'Inspection Mode';
+  modeLabel.style.marginTop = '10px';
+  c.appendChild(modeLabel);
+
+  const modeRow = document.createElement('div');
+  modeRow.style.cssText = 'display:flex;gap:6px;margin:6px 0;';
+  const modeBtns: Array<{ id: FaceInspectionMode; label: string }> = [
+    { id: 'normal', label: 'Normal' },
+    { id: 'face-only', label: 'Face Only' },
+    { id: 'head-shell-only', label: 'Head Shell Only' },
+  ];
+  const syncModeButtons = () => {
+    modeRow.querySelectorAll('button').forEach((b) => {
+      const active = (b as HTMLButtonElement).dataset.mode === faceDiagnosticVisibility.mode;
+      b.style.background = active ? 'rgba(255,213,74,.18)' : 'transparent';
+      b.style.color = active ? '#ffd54a' : '#edf4ff';
+      b.style.borderColor = active ? 'rgba(255,213,74,.5)' : 'rgba(255,255,255,.18)';
+    });
+  };
+  modeBtns.forEach(({ id, label }) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.dataset.mode = id;
+    b.style.cssText =
+      'flex:1;padding:5px;border-radius:6px;border:1px solid rgba(255,255,255,.18);background:transparent;color:#edf4ff;cursor:pointer;font-size:11px;';
+    b.addEventListener('click', () => {
+      faceDiagnosticVisibility.mode = id;
+      syncModeButtons();
+      applyFaceDiagnosticVisibility();
+    });
+    modeRow.appendChild(b);
+  });
+  c.appendChild(modeRow);
+  syncModeButtons();
+
+  // Dev-only live readout of the diagnostic state + key live objects.
+  const readout = document.createElement('div');
+  readout.style.cssText =
+    'font-size:10px;color:#9fb3cc;margin-top:6px;line-height:1.5;white-space:pre-wrap;';
+  const checkBtn = document.createElement('button');
+  checkBtn.type = 'button';
+  checkBtn.textContent = 'Check Face Visibility State';
+  checkBtn.style.cssText =
+    'margin-top:4px;padding:4px 8px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:transparent;color:#edf4ff;cursor:pointer;font-size:10px;';
+  checkBtn.addEventListener('click', () => {
+    const s = faceDiagnosticVisibility;
+    const vis = (n: string) => golfer.root.getObjectByName(n)?.visible;
+    const lines = [
+      `Inspection Mode: ${s.mode}`,
+      'INDIVIDUAL OVERRIDES:',
+      `  Hide Hair: ${s.hideHair} | FacialHair: ${s.hideFacialHair} | Ears: ${s.hideEars}`,
+      `  Hide Brows: ${s.hideBrows} | Eyes: ${s.hideEyes} | Nose: ${s.hideNose}`,
+      `  Hide Mouth: ${s.hideMouth} | Cheeks: ${s.hideCheeks} | Jaw: ${s.hideJaw} | Chin: ${s.hideChin}`,
+      'LIVE OBJECT VISIBILITY:',
+      `  hair-root: ${vis('hair-root')} | head-part: ${vis('head-part')} | jaw-part: ${vis('jaw-part')}`,
+      `  cheek-left: ${vis('cheek-left')} | brow-left: ${vis('brow-left')} | eye-white-left: ${vis('eye-white-left')}`,
+      `  nose-part: ${vis('nose-part')} | mouth-part: ${vis('mouth-part')} | ear-left: ${vis('ear-left')}`,
+    ];
+    readout.textContent = lines.join('\n');
+  });
+  c.append(checkBtn, readout);
 });
 
 // ---- Full anatomical Body Features (permanent organization) ----
@@ -768,8 +1143,10 @@ makeSection(featureLeft, 'neck', 'Neck', (c) => {
   trapLabel.textContent = 'Trapezius (Neck → Shoulder)';
   trapLabel.style.marginTop = '12px';
   c.appendChild(trapLabel);
-  c.appendChild(appearanceSlider('Trapezius Width', 'trapeziusWidth', 0.5, 1.8));
+  c.appendChild(appearanceSlider('Trapezius Width', 'trapeziusWidth', 0.2, 1.8));
   c.appendChild(appearanceSlider('Trapezius Height', 'trapeziusHeight', 0.0, 1.8));
+  c.appendChild(appearanceSlider('Trapezius Depth', 'trapeziusDepth', 0.2, 1.8));
+  c.appendChild(appearanceSlider('Trapezius Vertical', 'trapeziusVertical', 0.5, 1.5));
 });
 
 // TORSO
@@ -778,15 +1155,47 @@ makeSection(featureLeft, 'torso', 'Torso', (c) => {
   propLabel.className = 'ftitle';
   propLabel.textContent = 'Proportions';
   c.appendChild(propLabel);
-  c.appendChild(appearanceSlider('Shorter / Taller', 'torsoLength', 0.3, 1.5));
-  c.appendChild(appearanceSlider('Wide / Skinny', 'torsoTaper', 0.4, 1.4));
-  c.appendChild(appearanceSlider('Chest Width', 'chestWidth', 0.6, 1.6));
-  c.appendChild(appearanceSlider('Chest Depth (Side)', 'chestDepth', 0.6, 1.6));
-  c.appendChild(appearanceSlider('Lower Torso Width', 'lowerTorsoWidth', 0.5, 1.8));
-  c.appendChild(appearanceSlider('Lower Torso Depth', 'lowerTorsoDepth', 0.5, 1.8));
-  c.appendChild(appearanceSlider('Waist Size', 'waistSize', 0.6, 1.6));
-  c.appendChild(appearanceSlider('Shoulder Width', 'shoulderWidth', 0.6, 1.6));
-  c.appendChild(appearanceSlider('Shoulders In / Out', 'shoulderInOut', 0.4, 1.5));
+  c.appendChild(appearanceSlider('Torso Length', 'torsoLength', 0.3, 1.5));
+  // Shoulder Width = anatomical attachment span (shoulderInOut), NOT the
+  // legacy shoulderWidth joint-X-scale (which is arm/shoulder bulk).
+  c.appendChild(appearanceSlider('Shoulder Width', 'shoulderInOut', 0.4, 1.5));
+
+  const chestLabel = document.createElement('div');
+  chestLabel.className = 'ftitle';
+  chestLabel.textContent = 'Chest';
+  chestLabel.style.marginTop = '12px';
+  c.appendChild(chestLabel);
+  c.appendChild(
+    authoringProfileSlider('Chest Width', 'chestWidth', {
+      min: 0.6,
+      max: 1.6,
+      step: 0.05,
+      hardMin: 0.1,
+      hardMax: 3.0,
+    })
+  );
+  c.appendChild(appearanceSlider('Chest Depth', 'chestDepth', 0.6, 1.6));
+
+  const waistLabel = document.createElement('div');
+  waistLabel.className = 'ftitle';
+  waistLabel.textContent = 'Waist';
+  waistLabel.style.marginTop = '12px';
+  c.appendChild(waistLabel);
+  c.appendChild(appearanceSlider('Waist Width', 'lowerTorsoWidth', 0.5, 1.8));
+  c.appendChild(appearanceSlider('Waist Depth', 'lowerTorsoDepth', 0.5, 1.8));
+
+  const advLabel = document.createElement('div');
+  advLabel.className = 'ftitle';
+  advLabel.textContent = 'Advanced / Legacy';
+  advLabel.style.marginTop = '12px';
+  c.appendChild(advLabel);
+  // Legacy: broad parent-Z scaling, superseded by Chest/Waist Depth. Persisted
+  // value is preserved and runtime-compatible, but hidden from primary torso
+  // authoring as LEGACY.
+  c.appendChild(appearanceSlider('Wide / Skinny (Legacy)', 'torsoTaper', 0.4, 1.4));
+  c.appendChild(appearanceSlider('Waist Size (Belt)', 'waistSize', 0.6, 1.6));
+  // Shoulder/arm bulk (joint X scale) — NOT anatomical shoulder span.
+  c.appendChild(appearanceSlider('Shoulder Bulk (Legacy)', 'shoulderWidth', 0.6, 1.6));
   c.appendChild(appearanceSlider('Shoulders Up / Down', 'shoulderVertical', 0.6, 1.4));
   c.appendChild(appearanceSlider('Arm Length (Both)', 'armLength', 0.3, 1.6));
   c.appendChild(appearanceSlider('Arm Thickness (Both)', 'armThickness', 0.3, 1.6));
@@ -828,12 +1237,36 @@ makeSection(featureLeft, 'leftArm', 'Left Arm', (c) => {
       () => draft.lAbduction,
       (v) => (draft.lAbduction = v),
       0,
-      140
+      180
     )
   );
-  c.appendChild(comingSoonRow('Forward / Back'));
-  c.appendChild(comingSoonRow('Arm Twist'));
-  c.appendChild(comingSoonRow('Elbow Bend'));
+  c.appendChild(
+    slider(
+      'Forward / Back',
+      () => draft.lFlexion,
+      (v) => (draft.lFlexion = v),
+      -90,
+      180
+    )
+  );
+  c.appendChild(
+    slider(
+      'Arm Twist',
+      () => draft.lTwist,
+      (v) => (draft.lTwist = v),
+      -90,
+      90
+    )
+  );
+  c.appendChild(
+    slider(
+      'Elbow Bend',
+      () => draft.lElbow,
+      (v) => (draft.lElbow = v),
+      0,
+      145
+    )
+  );
 });
 
 // RIGHT ARM
@@ -848,12 +1281,36 @@ makeSection(featureLeft, 'rightArm', 'Right Arm', (c) => {
       () => draft.rAbduction,
       (v) => (draft.rAbduction = v),
       0,
-      140
+      180
     )
   );
-  c.appendChild(comingSoonRow('Forward / Back'));
-  c.appendChild(comingSoonRow('Arm Twist'));
-  c.appendChild(comingSoonRow('Elbow Bend'));
+  c.appendChild(
+    slider(
+      'Forward / Back',
+      () => draft.rFlexion,
+      (v) => (draft.rFlexion = v),
+      -90,
+      180
+    )
+  );
+  c.appendChild(
+    slider(
+      'Arm Twist',
+      () => draft.rTwist,
+      (v) => (draft.rTwist = v),
+      -90,
+      90
+    )
+  );
+  c.appendChild(
+    slider(
+      'Elbow Bend',
+      () => draft.rElbow,
+      (v) => (draft.rElbow = v),
+      0,
+      145
+    )
+  );
 });
 
 // HIPS / PELVIS
@@ -908,7 +1365,15 @@ makeSection(featureLeft, 'leftLeg', 'Left Leg', (c) => {
       60
     )
   );
-  c.appendChild(comingSoonRow('Hip Rotation'));
+  c.appendChild(
+    slider(
+      'Hip Rotation',
+      () => draft.lHipRot,
+      (v) => (draft.lHipRot = v),
+      -60,
+      60
+    )
+  );
   c.appendChild(
     slider(
       'Knee Bend',
@@ -918,7 +1383,7 @@ makeSection(featureLeft, 'leftLeg', 'Left Leg', (c) => {
       120
     )
   );
-  c.appendChild(comingSoonRow('Foot Direction'));
+  c.appendChild(ankleNoteRow());
 });
 
 // RIGHT LEG
@@ -941,7 +1406,15 @@ makeSection(featureLeft, 'rightLeg', 'Right Leg', (c) => {
       60
     )
   );
-  c.appendChild(comingSoonRow('Hip Rotation'));
+  c.appendChild(
+    slider(
+      'Hip Rotation',
+      () => draft.rHipRot,
+      (v) => (draft.rHipRot = v),
+      -60,
+      60
+    )
+  );
   c.appendChild(
     slider(
       'Knee Bend',
@@ -951,15 +1424,38 @@ makeSection(featureLeft, 'rightLeg', 'Right Leg', (c) => {
       120
     )
   );
-  c.appendChild(comingSoonRow('Foot Direction'));
+  c.appendChild(ankleNoteRow());
 });
 
 // LEGS (PROPORTIONS) — both-legs baseline geometry, grouped together.
 makeSection(featureLeft, 'legsProp', 'Legs (Proportions)', (c) => {
   c.appendChild(appearanceSlider('Leg Length', 'legLength', 0.3, 1.5));
   c.appendChild(appearanceSlider('Thigh Length (Hip to Knee)', 'thighLength', 0.6, 1.6));
+  c.appendChild(appearanceSlider('Thigh Thickness', 'thighThickness', 0.4, 1.8));
   c.appendChild(appearanceSlider('Leg Width (Both)', 'legTaper', 0.4, 1.8));
-  c.appendChild(appearanceSlider('Hip Width', 'hipWidth', 0.5, 1.5));
+});
+
+// HIPS / PELVIS — anatomical pelvis body (WAIST → HIPS transition). Hip Width
+// also drives hip-joint spacing; Hip Depth is the front/back pelvis depth.
+makeSection(featureLeft, 'hips', 'Hips / Pelvis', (c) => {
+  c.appendChild(
+    authoringProfileSlider('Hip Width', 'hipWidth', {
+      min: 0.5,
+      max: 1.5,
+      step: 0.05,
+      hardMin: 0.2,
+      hardMax: 3.0,
+    })
+  );
+  c.appendChild(
+    authoringProfileSlider('Hip Depth', 'hipDepth', {
+      min: 0.5,
+      max: 1.5,
+      step: 0.05,
+      hardMin: 0.2,
+      hardMax: 3.0,
+    })
+  );
 });
 
 // HANDS / WRISTS
@@ -1090,12 +1586,28 @@ makeSection(featureLeft, 'shorts', 'Shorts / Clothing', (c) => {
   shortsLabel.textContent = 'Shorts';
   shortsLabel.style.marginTop = '10px';
   c.appendChild(shortsLabel);
-  c.appendChild(appearanceSlider('Shorts Width', 'shortsWidth', 0.6, 2.2));
-  c.appendChild(appearanceSlider('Shorts Length', 'shortsLength', 0.4, 2.2));
+  c.appendChild(
+    authoringProfileSlider('Shorts Width', 'shortsWidth', {
+      min: 0.6,
+      max: 2.2,
+      step: 0.05,
+      hardMin: 0.1,
+      hardMax: 4.0,
+    })
+  );
+  c.appendChild(appearanceSlider('Shorts Length', 'shortsLength', 0.4, 1.0));
   c.appendChild(appearanceSlider('Shorts Up / Down', 'shortsRise', -0.3, 0.3));
   c.appendChild(appearanceSlider('Shorts Forward / Back', 'shortsForward', -0.15, 0.15));
   c.appendChild(appearanceSlider('Shorts Depth', 'shortsDepth', 0.2, 3));
-  c.appendChild(appearanceSlider('Short Leg Width', 'shortLegWidth', 0.5, 2.2));
+  c.appendChild(
+    authoringProfileSlider('Short Leg Width', 'shortLegWidth', {
+      min: 0.5,
+      max: 2.2,
+      step: 0.05,
+      hardMin: 0.1,
+      hardMax: 4.0,
+    })
+  );
   c.appendChild(appearanceSlider('Short Leg Length', 'shortLegLength', 0.5, 2.2));
   c.appendChild(appearanceSlider('Sock Thickness', 'sockThickness', 0.5, 1.8));
 });
@@ -1131,15 +1643,15 @@ makeSection(featureLeft, 'disc', 'Disc', (c) => {
   handSel.style.cssText =
     'padding:4px 8px;border-radius:6px;border:1px solid rgba(255,213,74,.3);background:rgba(10,17,28,.96);color:#edf4ff;';
   [
-    ['right', 'Right Hand'],
     ['left', 'Left Hand'],
+    ['right', 'Right Hand'],
   ].forEach(([v, label]) => {
     const o = document.createElement('option');
     o.value = v;
     o.textContent = label;
     handSel.appendChild(o);
   });
-  handSel.value = 'right';
+  handSel.value = 'left';
   handSel.addEventListener('change', () => {
     golfer.setDiscHand(handSel.value as 'right' | 'left');
     markEdited();

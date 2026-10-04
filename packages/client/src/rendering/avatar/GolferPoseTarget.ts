@@ -135,11 +135,13 @@ export class GolferPoseTarget implements PoseTarget {
   }
 
   // Hip. flexion (step forward/back) -> local X (forward = -X). abduction
-  // (leg out/in) -> local Z, mirrored (right +=, left -=).
+  // (leg out/in) -> local Z, mirrored (right +=, left -=). rotation (femur
+  // axial twist) -> local Y, mirrored. All compose onto the captured baseline;
+  // the hip socket position never moves (rotation-only pose).
   private applyHip(
     joint: 'hipL' | 'hipR',
     side: 'left' | 'right',
-    pose: { flexion?: number; abduction?: number }
+    pose: { flexion?: number; abduction?: number; rotation?: number }
   ): void {
     const group = this.golfer.getJointGroup(joint);
     if (!group) {
@@ -148,9 +150,10 @@ export class GolferPoseTarget implements PoseTarget {
     const sign = side === 'right' ? 1 : -1;
     const flexion = pose.flexion ?? 0;
     const abduction = pose.abduction ?? 0;
+    const rotation = pose.rotation ?? 0;
     group.rotation.set(
       group.rotation.x - flexion,
-      group.rotation.y,
+      group.rotation.y + rotation * sign,
       group.rotation.z + abduction * sign
     );
   }

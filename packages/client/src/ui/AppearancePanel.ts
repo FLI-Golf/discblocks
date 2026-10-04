@@ -391,8 +391,13 @@ export class AppearancePanel {
           scale('Width', 'mouthWidth'),
           scale('Height', 'mouthHeight'),
           scale('Depth', 'mouthDepth'),
+          scale('Lip Fullness', 'mouthFullness'),
           pos('Vertical', 'mouthPositionY'),
-          pos('Forward / Back', 'mouthPositionZ')
+          pos('Forward / Back', 'mouthPositionZ'),
+          this.slider('Corner Angle', 'mouthCornerAngle', -30, 30, 1, () =>
+            adv('mouthCornerAngle')
+          ),
+          this.slider('Opening', 'mouthOpening', 0, 1, 0.01, () => adv('mouthOpening'))
         );
       }),
       this.section('brows', 'Brows', f.brow.toFixed(2), (c) => {
@@ -402,7 +407,12 @@ export class AppearancePanel {
           scale('Thickness', 'browThickness'),
           scale('Spacing', 'browSpacing'),
           pos('Vertical', 'browPositionY'),
-          this.slider('Angle', 'browAngle', -30, 30, 1, () => adv('browAngle'))
+          this.slider('Angle', 'browAngle', -45, 45, 1, () => adv('browAngle')),
+          this.slider('Arch', 'browArch', -1, 1, 0.01, () => adv('browArch')),
+          pos('Inner Height', 'browInnerHeight'),
+          pos('Outer Height', 'browOuterHeight'),
+          pos('Inner Fwd / Back', 'browInnerForward'),
+          pos('Outer Fwd / Back', 'browOuterForward')
         );
       }),
       this.heading('Facial Hair'),
@@ -422,8 +432,41 @@ export class AppearancePanel {
           scale('Depth', 'hairDepth'),
           pos('Vertical', 'hairPositionY'),
           pos('Forward / Back', 'hairPositionZ'),
-          this.color('Color', 'hairColor', () => this.appearance.hairColor),
-          scale('Back Length', 'backHairLength'),
+          this.color('Color', 'hairColor', () => this.appearance.hairColor)
+        );
+        const crownLbl = document.createElement('div');
+        crownLbl.className = 'ftitle';
+        crownLbl.textContent = 'Crown (Front / Top)';
+        c.appendChild(crownLbl);
+        c.append(
+          scale('Crown Width', 'hairCrownWidth'),
+          scale('Crown Height', 'hairCrownHeight'),
+          scale('Crown Depth', 'hairCrownDepth'),
+          this.slider('Top Grow In', 'hairCrownGrowIn', 0.5, 2.0, 0.01, () =>
+            adv('hairCrownGrowIn')
+          )
+        );
+        const backLbl = document.createElement('div');
+        backLbl.className = 'ftitle';
+        backLbl.textContent = 'Back';
+        c.appendChild(backLbl);
+        c.append(
+          scale('Back Width', 'hairBackWidth'),
+          scale('Back Height', 'hairBackHeight'),
+          scale('Back Depth', 'hairBackDepth'),
+          this.slider('Back Grow In', 'hairBackGrowIn', 0.5, 2.0, 0.01, () =>
+            adv('hairBackGrowIn')
+          ),
+          scale('Back Length', 'backHairLength')
+        );
+        const sideLbl = document.createElement('div');
+        sideLbl.className = 'ftitle';
+        sideLbl.textContent = 'Sides / Sideburns';
+        c.appendChild(sideLbl);
+        c.append(
+          scale('Side Width', 'hairSideWidth'),
+          scale('Side Height', 'hairSideHeight'),
+          scale('Side Depth', 'hairSideDepth'),
           scale('Sideburn Length', 'sideburnLength'),
           scale('Sideburn Width', 'sideburnWidth')
         );

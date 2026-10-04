@@ -713,9 +713,9 @@ export class AppearanceModal {
         (face as Record<string, number | undefined>)[key] ?? FACE_ADVANCED_DEFAULTS[key];
 
       const advScale = (label: string, key: FaceAdvancedKey) =>
-        this.sliderRow(label, key, 0.5, 1.5, 0.01);
+        this.sliderRow(label, key, 0.25, 2.0, 0.01);
       const advPos = (label: string, key: FaceAdvancedKey) =>
-        this.sliderRow(label, key, -0.1, 0.1, 0.005);
+        this.sliderRow(label, key, -0.3, 0.3, 0.005);
       const resetButton = (
         label: string,
         keys: Array<NumericSliderKey | 'hairStyle' | 'hairColor'>
@@ -911,15 +911,21 @@ export class AppearanceModal {
               advScale('Width', 'mouthWidth'),
               advScale('Height', 'mouthHeight'),
               advScale('Depth', 'mouthDepth'),
+              advScale('Lip Fullness', 'mouthFullness'),
               advPos('Vertical', 'mouthPositionY'),
               advPos('Forward / Back', 'mouthPositionZ'),
+              this.sliderRow('Corner Angle', 'mouthCornerAngle', -30, 30, 1),
+              this.sliderRow('Opening', 'mouthOpening', 0, 1, 0.01),
               resetButton('Reset Mouth', [
                 'mouth',
                 'mouthWidth',
                 'mouthHeight',
                 'mouthDepth',
+                'mouthFullness',
                 'mouthPositionY',
                 'mouthPositionZ',
+                'mouthCornerAngle',
+                'mouthOpening',
               ])
             );
           },
@@ -939,7 +945,12 @@ export class AppearanceModal {
               advScale('Thickness', 'browThickness'),
               advScale('Spacing', 'browSpacing'),
               advPos('Vertical', 'browPositionY'),
-              this.sliderRow('Angle', 'browAngle', -30, 30, 1),
+              this.sliderRow('Angle', 'browAngle', -45, 45, 1),
+              this.sliderRow('Arch', 'browArch', -1, 1, 0.01),
+              advPos('Inner Height', 'browInnerHeight'),
+              advPos('Outer Height', 'browOuterHeight'),
+              advPos('Inner Fwd / Back', 'browInnerForward'),
+              advPos('Outer Fwd / Back', 'browOuterForward'),
               resetButton('Reset Brows', [
                 'brow',
                 'browWidth',
@@ -993,6 +1004,17 @@ export class AppearanceModal {
               advPos('Vertical', 'hairPositionY'),
               advPos('Forward / Back', 'hairPositionZ'),
               this.colorRow('Color', 'hairColor'),
+              advScale('Crown Width', 'hairCrownWidth'),
+              advScale('Crown Height', 'hairCrownHeight'),
+              advScale('Crown Depth', 'hairCrownDepth'),
+              this.sliderRow('Top Grow In', 'hairCrownGrowIn', 0.5, 2.0, 0.01),
+              advScale('Back Width', 'hairBackWidth'),
+              advScale('Back Height', 'hairBackHeight'),
+              advScale('Back Depth', 'hairBackDepth'),
+              this.sliderRow('Back Grow In', 'hairBackGrowIn', 0.5, 2.0, 0.01),
+              advScale('Side Width', 'hairSideWidth'),
+              advScale('Side Height', 'hairSideHeight'),
+              advScale('Side Depth', 'hairSideDepth'),
               resetButton('Reset Hair', [
                 'hairStyle',
                 'hairColor',
@@ -1002,6 +1024,17 @@ export class AppearanceModal {
                 'hairDepth',
                 'hairPositionY',
                 'hairPositionZ',
+                'hairCrownWidth',
+                'hairCrownHeight',
+                'hairCrownDepth',
+                'hairCrownGrowIn',
+                'hairBackWidth',
+                'hairBackHeight',
+                'hairBackDepth',
+                'hairBackGrowIn',
+                'hairSideWidth',
+                'hairSideHeight',
+                'hairSideDepth',
               ])
             );
           },

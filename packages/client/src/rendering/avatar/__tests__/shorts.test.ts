@@ -7,13 +7,32 @@ import { Golfer, DEFAULT_GOLFER_APPEARANCE } from '@/rendering/Golfer';
 import { GolferPoseTarget } from '@/rendering/avatar';
 
 describe('shorts garment', () => {
-  it('exposes shorts-root + pieces and no pelvis-part mesh', () => {
+  it('exposes the garment regions: waist assembly + two leg assemblies', () => {
     const golfer = new Golfer({ ...DEFAULT_GOLFER_APPEARANCE });
     expect(golfer.root.getObjectByName('shorts-root')).toBeDefined();
-    expect(golfer.root.getObjectByName('shorts-waist')).toBeDefined();
-    expect(golfer.root.getObjectByName('shorts-left')).toBeDefined();
-    expect(golfer.root.getObjectByName('shorts-right')).toBeDefined();
+    expect(golfer.root.getObjectByName('shorts-waist-root')).toBeDefined();
+    expect(golfer.root.getObjectByName('shorts-upper-part')).toBeDefined();
+    expect(golfer.root.getObjectByName('shorts-leg-left')).toBeDefined();
+    expect(golfer.root.getObjectByName('shorts-leg-right')).toBeDefined();
     expect(golfer.root.getObjectByName('pelvis-part')).toBeUndefined();
+    golfer.dispose();
+  });
+
+  it('upper shorts + waistband + buckle belong to shorts-waist-root', () => {
+    const golfer = new Golfer({ ...DEFAULT_GOLFER_APPEARANCE });
+    const waistRoot = golfer.root.getObjectByName('shorts-waist-root')!;
+    const under = (o: THREE.Object3D): boolean => {
+      let p: THREE.Object3D | null = o;
+      while (p) {
+        if (p === waistRoot) return true;
+        p = p.parent;
+      }
+      return false;
+    };
+    expect(under(golfer.root.getObjectByName('shorts-upper-part')!)).toBe(true);
+    expect(under(golfer.root.getObjectByName('belt-root')!)).toBe(true);
+    expect(under(golfer.root.getObjectByName('jersey-hem')!)).toBe(true);
+    expect(under(golfer.root.getObjectByName('belt-buckle')!)).toBe(true);
     golfer.dispose();
   });
 
@@ -39,7 +58,7 @@ describe('shorts garment', () => {
   it('recolors the whole garment with shortsColor', () => {
     const golfer = new Golfer({ ...DEFAULT_GOLFER_APPEARANCE });
     golfer.setAppearance({ ...golfer.appearance, shortsColor: 0x123456 });
-    for (const name of ['shorts-waist', 'shorts-left', 'shorts-right']) {
+    for (const name of ['shorts-upper-part', 'shorts-leg-left', 'shorts-leg-right']) {
       const mesh = golfer.root.getObjectByName(name) as THREE.Mesh;
       const mat = mesh.material as THREE.MeshStandardMaterial;
       expect(mat.color.getHex()).toBe(0x123456);

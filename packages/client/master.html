@@ -60,6 +60,15 @@
       .row output { color: #ffd54a; font-size: 11px; }
       .row input[type=range] { grid-column: 1/-1; width: 100%; accent-color: #ffd54a; }
 
+      /* Adaptive authoring slider: label/value on row 1, [−] slider [+] [⟲] + precision on row 2. */
+      .authoring-slider { grid-template-columns: 1fr auto; }
+      .authoring-slider .range-btn { padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.05); color: #edf4ff; font-size: 13px; line-height: 1; cursor: pointer; }
+      .authoring-slider .range-btn:hover { background: rgba(255,213,74,.16); border-color: rgba(255,213,74,.5); color: #ffd54a; }
+      .authoring-slider input[type=range] { grid-column: auto; width: 100%; }
+      .authoring-slider .precision { display: inline-flex; gap: 3px; grid-column: 1/-1; }
+      .authoring-slider .precision .range-btn { padding: 1px 7px; font-size: 10px; }
+      .authoring-slider .precision .range-btn.active { background: rgba(255,213,74,.16); color: #ffd54a; border-color: rgba(255,213,74,.5); }
+
       .appearance-inline { margin-bottom: 6px; }
       .appearance-mode-toggle { display: flex; gap: 6px; margin-bottom: 10px; }
       .appearance-mode-button { flex: 1; padding: 6px; border-radius: 8px; border: 1px solid rgba(255,255,255,.14); background: transparent; color: #edf4ff; cursor: pointer; font-size: 12px; }

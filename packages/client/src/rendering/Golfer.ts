@@ -101,12 +101,18 @@ export interface BodyProfile {
   torsoLength: number;
   torsoTaper: number;
   hipWidth: number;
+  // Anatomical pelvis front/back depth (baseline). 1.0 = default. Added for
+  // the WAIST→PELVIS factory; old saved profiles omit it and behave as 1.0.
+  hipDepth: number;
   armThickness: number;
   armRaise: number;
   armLength: number;
   legLength: number;
   thighLength: number;
   legTaper: number;
+  // Thigh radial thickness (X/Z), independent of calf thickness. Default 1.0;
+  // old saved profiles omit it and behave as 1.0.
+  thighThickness: number;
   headScale: number;
   jawWidth: number;
   chinShape: number;
@@ -131,6 +137,10 @@ export interface BodyProfile {
   // Trapezius (neck→shoulder) transition dome (baseline). Visible geometry.
   trapeziusWidth: number;
   trapeziusHeight: number;
+  // Front/back thickness of the trapezius dome.
+  trapeziusDepth: number;
+  // Vertical placement of the trapezius dome (multiplier on baseline y 0.66).
+  trapeziusVertical: number;
   // Shoulder placement (baseline). How far the shoulder pivot sits from the
   // torso centerline (1 = default ±0.32; smaller = closer to the torso).
   shoulderInOut: number;
@@ -151,6 +161,7 @@ export interface BodyProfile {
   shortsForward: number;
   // Whole-garment front-to-back depth (Z).
   shortsDepth: number;
+  // Radial width of each leg tube (X/Z). Waist width is shortsWidth's job.
   shortLegWidth: number;
   shortLegLength: number;
   // Feet (baseline).
@@ -219,17 +230,36 @@ export type FaceAdvancedKey =
   | 'mouthDepth'
   | 'mouthPositionY'
   | 'mouthPositionZ'
+  | 'mouthFullness'
+  | 'mouthCornerAngle'
+  | 'mouthOpening'
   | 'browWidth'
   | 'browThickness'
   | 'browSpacing'
   | 'browPositionY'
   | 'browAngle'
+  | 'browArch'
+  | 'browInnerHeight'
+  | 'browOuterHeight'
+  | 'browInnerForward'
+  | 'browOuterForward'
   | 'hairScale'
   | 'hairWidth'
   | 'hairHeight'
   | 'hairDepth'
   | 'hairPositionY'
   | 'hairPositionZ'
+  | 'hairCrownWidth'
+  | 'hairCrownHeight'
+  | 'hairCrownDepth'
+  | 'hairCrownGrowIn'
+  | 'hairBackWidth'
+  | 'hairBackHeight'
+  | 'hairBackDepth'
+  | 'hairBackGrowIn'
+  | 'hairSideWidth'
+  | 'hairSideHeight'
+  | 'hairSideDepth'
   | 'sideburnLength'
   | 'sideburnWidth'
   | 'earSize'
@@ -242,16 +272,19 @@ export const FACE_PARAMETER_LIMITS: Record<
   FaceParameterKey,
   { min: number; max: number; default: number; step: number }
 > = {
-  headScale: { min: 0.7, max: 1.3, default: 1.0, step: 0.01 },
-  jawWidth: { min: 0.4, max: 1.6, default: 0.99, step: 0.01 },
-  chinShape: { min: 0.5, max: 1.6, default: 0.96, step: 0.01 },
-  brow: { min: 0.0, max: 1.2, default: 0.72, step: 0.01 },
-  nose: { min: 0.05, max: 1.8, default: 0.32, step: 0.01 },
-  eyeSpacing: { min: 0.3, max: 1.2, default: 0.7, step: 0.01 },
-  eyeSize: { min: 0.5, max: 1.5, default: 1.0, step: 0.01 },
-  mouth: { min: 0.3, max: 1.4, default: 0.42, step: 0.01 },
-  beard: { min: 0.0, max: 1.0, default: 0.0, step: 0.01 },
-  stubble: { min: 0.0, max: 1.0, default: 0.0, step: 0.01 },
+  // Authoring ranges expanded for character creation. DEFAULTS are unchanged —
+  // only the min/max envelope widened. Saved values load identically (clamps
+  // only relax; they never remap). Scale-like controls get a broad envelope.
+  headScale: { min: 0.5, max: 1.8, default: 1.0, step: 0.01 },
+  jawWidth: { min: 0.25, max: 2.0, default: 0.99, step: 0.01 },
+  chinShape: { min: 0.25, max: 2.0, default: 0.96, step: 0.01 },
+  brow: { min: 0.0, max: 2.0, default: 0.72, step: 0.01 },
+  nose: { min: 0.0, max: 2.0, default: 0.32, step: 0.01 },
+  eyeSpacing: { min: 0.2, max: 1.8, default: 0.7, step: 0.01 },
+  eyeSize: { min: 0.25, max: 2.0, default: 1.0, step: 0.01 },
+  mouth: { min: 0.1, max: 2.0, default: 0.42, step: 0.01 },
+  beard: { min: 0.0, max: 1.5, default: 0.0, step: 0.01 },
+  stubble: { min: 0.0, max: 1.5, default: 0.0, step: 0.01 },
 };
 
 export const FACE_ADVANCED_DEFAULTS: Record<FaceAdvancedKey, number> = {
@@ -292,17 +325,36 @@ export const FACE_ADVANCED_DEFAULTS: Record<FaceAdvancedKey, number> = {
   mouthDepth: 1,
   mouthPositionY: 0,
   mouthPositionZ: 0,
+  mouthFullness: 1,
+  mouthCornerAngle: 0,
+  mouthOpening: 0,
   browWidth: 1,
   browThickness: 1,
   browSpacing: 1,
   browPositionY: 0,
   browAngle: 0,
+  browArch: 0,
+  browInnerHeight: 0,
+  browOuterHeight: 0,
+  browInnerForward: 0,
+  browOuterForward: 0,
   hairScale: 1,
   hairWidth: 1,
   hairHeight: 1,
   hairDepth: 1,
   hairPositionY: 0,
   hairPositionZ: 0,
+  hairCrownWidth: 1,
+  hairCrownHeight: 1,
+  hairCrownDepth: 1,
+  hairCrownGrowIn: 1,
+  hairBackWidth: 1,
+  hairBackHeight: 1,
+  hairBackDepth: 1,
+  hairBackGrowIn: 1,
+  hairSideWidth: 1,
+  hairSideHeight: 1,
+  hairSideDepth: 1,
   sideburnLength: 1,
   sideburnWidth: 1,
   earSize: 1,
@@ -312,62 +364,84 @@ export const FACE_ADVANCED_DEFAULTS: Record<FaceAdvancedKey, number> = {
   backHairLength: 1,
 };
 
+// Advanced per-feature clamps (the geometry safety authority). Widened so the
+// authoring sliders' full range produces geometry instead of clamping flat.
+// Scale-like -> 0.25–2.0; positional -> ±0.3; spacing -> 0.3–2.0; angle -> ±45.
 const FACE_ADVANCED_LIMITS: Record<FaceAdvancedKey, { min: number; max: number }> = {
-  headWidth: { min: 0.5, max: 1.5 },
-  headHeight: { min: 0.5, max: 1.5 },
-  headDepth: { min: 0.5, max: 1.5 },
-  headPositionY: { min: -0.1, max: 0.1 },
-  headPositionZ: { min: -0.1, max: 0.1 },
-  cheekSize: { min: 0.5, max: 1.5 },
-  cheekWidth: { min: 0.5, max: 1.5 },
-  cheekHeight: { min: 0.5, max: 1.5 },
-  cheekDepth: { min: 0.5, max: 1.5 },
-  cheekSpacing: { min: 0.5, max: 1.5 },
-  cheekPositionY: { min: -0.1, max: 0.1 },
-  cheekPositionZ: { min: -0.1, max: 0.1 },
-  jawHeight: { min: 0.5, max: 1.5 },
-  jawDepth: { min: 0.5, max: 1.5 },
-  jawPositionY: { min: -0.1, max: 0.1 },
-  jawPositionZ: { min: -0.1, max: 0.1 },
-  chinSize: { min: 0.5, max: 1.5 },
-  chinWidth: { min: 0.5, max: 1.5 },
-  chinHeight: { min: 0.5, max: 1.5 },
-  chinDepth: { min: 0.5, max: 1.5 },
-  chinPositionY: { min: -0.1, max: 0.1 },
-  chinPositionZ: { min: -0.1, max: 0.1 },
-  eyeWidth: { min: 0.5, max: 1.5 },
-  eyeHeight: { min: 0.5, max: 1.5 },
-  eyeDepth: { min: 0.5, max: 1.5 },
-  eyePositionY: { min: -0.1, max: 0.1 },
-  eyePositionZ: { min: -0.1, max: 0.1 },
-  noseWidth: { min: 0.5, max: 1.5 },
-  noseHeight: { min: 0.5, max: 1.5 },
-  noseDepth: { min: 0.5, max: 1.5 },
-  nosePositionY: { min: -0.1, max: 0.1 },
-  nosePositionZ: { min: -0.1, max: 0.1 },
-  mouthWidth: { min: 0.5, max: 1.5 },
-  mouthHeight: { min: 0.5, max: 1.5 },
-  mouthDepth: { min: 0.5, max: 1.5 },
-  mouthPositionY: { min: -0.1, max: 0.1 },
-  mouthPositionZ: { min: -0.1, max: 0.1 },
-  browWidth: { min: 0.5, max: 1.5 },
-  browThickness: { min: 0.5, max: 1.5 },
-  browSpacing: { min: 0.5, max: 1.5 },
-  browPositionY: { min: -0.1, max: 0.1 },
-  browAngle: { min: -30, max: 30 },
-  hairScale: { min: 0.5, max: 1.5 },
-  hairWidth: { min: 0.5, max: 1.5 },
-  hairHeight: { min: 0.5, max: 1.5 },
-  hairDepth: { min: 0.5, max: 1.5 },
-  hairPositionY: { min: -0.1, max: 0.1 },
-  hairPositionZ: { min: -0.1, max: 0.1 },
-  sideburnLength: { min: 0, max: 2 },
-  sideburnWidth: { min: 0, max: 2 },
-  earSize: { min: 0.3, max: 2 },
-  earProminence: { min: 0, max: 2 },
-  earSpacing: { min: 0.6, max: 1.5 },
-  earVertical: { min: -0.2, max: 0.2 },
-  backHairLength: { min: 0, max: 2 },
+  headWidth: { min: 0.25, max: 2.0 },
+  headHeight: { min: 0.25, max: 2.0 },
+  headDepth: { min: 0.25, max: 2.0 },
+  headPositionY: { min: -0.3, max: 0.3 },
+  headPositionZ: { min: -0.3, max: 0.3 },
+  cheekSize: { min: 0.25, max: 2.0 },
+  cheekWidth: { min: 0.25, max: 2.0 },
+  cheekHeight: { min: 0.25, max: 2.0 },
+  cheekDepth: { min: 0.25, max: 2.0 },
+  cheekSpacing: { min: 0.3, max: 2.0 },
+  cheekPositionY: { min: -0.3, max: 0.3 },
+  cheekPositionZ: { min: -0.3, max: 0.3 },
+  jawHeight: { min: 0.25, max: 2.0 },
+  jawDepth: { min: 0.25, max: 2.0 },
+  jawPositionY: { min: -0.3, max: 0.3 },
+  jawPositionZ: { min: -0.3, max: 0.3 },
+  chinSize: { min: 0.25, max: 2.0 },
+  chinWidth: { min: 0.25, max: 2.0 },
+  chinHeight: { min: 0.25, max: 2.0 },
+  chinDepth: { min: 0.25, max: 2.0 },
+  chinPositionY: { min: -0.3, max: 0.3 },
+  chinPositionZ: { min: -0.3, max: 0.3 },
+  eyeWidth: { min: 0.25, max: 2.0 },
+  eyeHeight: { min: 0.25, max: 2.0 },
+  eyeDepth: { min: 0.25, max: 2.0 },
+  eyePositionY: { min: -0.3, max: 0.3 },
+  eyePositionZ: { min: -0.3, max: 0.3 },
+  noseWidth: { min: 0.25, max: 2.0 },
+  noseHeight: { min: 0.25, max: 2.0 },
+  noseDepth: { min: 0.25, max: 2.0 },
+  nosePositionY: { min: -0.3, max: 0.3 },
+  nosePositionZ: { min: -0.3, max: 0.3 },
+  mouthWidth: { min: 0.25, max: 2.0 },
+  mouthHeight: { min: 0.25, max: 2.0 },
+  mouthDepth: { min: 0.25, max: 2.0 },
+  mouthPositionY: { min: -0.3, max: 0.3 },
+  mouthPositionZ: { min: -0.3, max: 0.3 },
+  mouthFullness: { min: 0.25, max: 2.5 },
+  mouthCornerAngle: { min: -30, max: 30 },
+  mouthOpening: { min: 0, max: 1 },
+  browWidth: { min: 0.25, max: 2.0 },
+  browThickness: { min: 0.25, max: 2.0 },
+  browSpacing: { min: 0.3, max: 2.0 },
+  browPositionY: { min: -0.3, max: 0.3 },
+  browAngle: { min: -45, max: 45 },
+  browArch: { min: -1, max: 1 },
+  browInnerHeight: { min: -0.3, max: 0.3 },
+  browOuterHeight: { min: -0.3, max: 0.3 },
+  browInnerForward: { min: -0.2, max: 0.2 },
+  browOuterForward: { min: -0.2, max: 0.2 },
+  hairScale: { min: 0.25, max: 2.0 },
+  hairWidth: { min: 0.25, max: 2.0 },
+  hairHeight: { min: 0.25, max: 2.0 },
+  hairDepth: { min: 0.25, max: 2.0 },
+  hairPositionY: { min: -0.3, max: 0.3 },
+  hairPositionZ: { min: -0.3, max: 0.3 },
+  hairCrownWidth: { min: 0.25, max: 2.0 },
+  hairCrownHeight: { min: 0.25, max: 2.0 },
+  hairCrownDepth: { min: 0.25, max: 2.0 },
+  hairCrownGrowIn: { min: 0.5, max: 2.0 },
+  hairBackWidth: { min: 0.25, max: 2.0 },
+  hairBackHeight: { min: 0.25, max: 2.0 },
+  hairBackDepth: { min: 0.25, max: 2.0 },
+  hairBackGrowIn: { min: 0.5, max: 2.0 },
+  hairSideWidth: { min: 0.25, max: 2.0 },
+  hairSideHeight: { min: 0.25, max: 2.0 },
+  hairSideDepth: { min: 0.25, max: 2.0 },
+  sideburnLength: { min: 0, max: 2.5 },
+  sideburnWidth: { min: 0, max: 2.5 },
+  earSize: { min: 0.25, max: 2.5 },
+  earProminence: { min: 0, max: 2.5 },
+  earSpacing: { min: 0.4, max: 2.0 },
+  earVertical: { min: -0.3, max: 0.3 },
+  backHairLength: { min: 0, max: 2.5 },
 };
 
 export function clampFaceParameterValue(key: FaceParameterKey, value: number): number {
@@ -446,17 +520,36 @@ export interface FaceConfig {
   mouthDepth: number;
   mouthPositionY: number;
   mouthPositionZ: number;
+  mouthFullness: number;
+  mouthCornerAngle: number;
+  mouthOpening: number;
   browWidth: number;
   browThickness: number;
   browSpacing: number;
   browPositionY: number;
   browAngle: number;
+  browArch: number;
+  browInnerHeight: number;
+  browOuterHeight: number;
+  browInnerForward: number;
+  browOuterForward: number;
   hairScale: number;
   hairWidth: number;
   hairHeight: number;
   hairDepth: number;
   hairPositionY: number;
   hairPositionZ: number;
+  hairCrownWidth: number;
+  hairCrownHeight: number;
+  hairCrownDepth: number;
+  hairCrownGrowIn: number;
+  hairBackWidth: number;
+  hairBackHeight: number;
+  hairBackDepth: number;
+  hairBackGrowIn: number;
+  hairSideWidth: number;
+  hairSideHeight: number;
+  hairSideDepth: number;
   sideburnLength: number;
   sideburnWidth: number;
   earSize: number;
@@ -553,17 +646,36 @@ export interface CharacterAppearance {
     mouthDepth: number;
     mouthPositionY: number;
     mouthPositionZ: number;
+    mouthFullness: number;
+    mouthCornerAngle: number;
+    mouthOpening: number;
     browWidth: number;
     browThickness: number;
     browSpacing: number;
     browPositionY: number;
     browAngle: number;
+    browArch: number;
+    browInnerHeight: number;
+    browOuterHeight: number;
+    browInnerForward: number;
+    browOuterForward: number;
     hairScale: number;
     hairWidth: number;
     hairHeight: number;
     hairDepth: number;
     hairPositionY: number;
     hairPositionZ: number;
+    hairCrownWidth: number;
+    hairCrownHeight: number;
+    hairCrownDepth: number;
+    hairCrownGrowIn: number;
+    hairBackWidth: number;
+    hairBackHeight: number;
+    hairBackDepth: number;
+    hairBackGrowIn: number;
+    hairSideWidth: number;
+    hairSideHeight: number;
+    hairSideDepth: number;
   };
 }
 
@@ -639,12 +751,14 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     torsoLength: 1.22,
     torsoTaper: 1.12,
     hipWidth: 0.82,
+    hipDepth: 1.0,
     armThickness: 1.18,
     armRaise: 0,
     armLength: 1,
     thighLength: 1,
     legLength: 1.08,
     legTaper: 1.14,
+    thighThickness: 1.0,
     headScale: 1.08,
     jawWidth: 1.12,
     chinShape: 1.06,
@@ -661,6 +775,8 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     neckForward: 0,
     trapeziusWidth: 1.0,
     trapeziusHeight: 1.0,
+    trapeziusDepth: 1.0,
+    trapeziusVertical: 1.0,
     shoulderInOut: 1.0,
     shoulderVertical: 1.0,
     handSize: 1.0,
@@ -685,12 +801,14 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     torsoLength: 0.96,
     torsoTaper: 0.74,
     hipWidth: 1.24,
+    hipDepth: 1.0,
     armThickness: 0.9,
     armRaise: 0,
     armLength: 1,
     thighLength: 1,
     legLength: 0.98,
     legTaper: 0.9,
+    thighThickness: 1.0,
     headScale: 0.96,
     jawWidth: 0.78,
     chinShape: 0.7,
@@ -707,6 +825,8 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     neckForward: 0,
     trapeziusWidth: 0.9,
     trapeziusHeight: 0.92,
+    trapeziusDepth: 1.0,
+    trapeziusVertical: 1.0,
     shoulderInOut: 1.0,
     shoulderVertical: 1.0,
     handSize: 0.92,
@@ -731,12 +851,14 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     torsoLength: 0.82,
     torsoTaper: 0.68,
     hipWidth: 0.8,
+    hipDepth: 1.0,
     armThickness: 0.82,
     armRaise: 0,
     armLength: 1,
     thighLength: 1,
     legLength: 0.86,
     legTaper: 0.78,
+    thighThickness: 1.0,
     headScale: 0.88,
     jawWidth: 0.9,
     chinShape: 0.84,
@@ -753,6 +875,8 @@ export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
     neckForward: 0,
     trapeziusWidth: 1.0,
     trapeziusHeight: 1.0,
+    trapeziusDepth: 1.0,
+    trapeziusVertical: 1.0,
     shoulderInOut: 1.0,
     shoulderVertical: 1.0,
     handSize: 0.94,
@@ -866,17 +990,36 @@ export function buildCharacterAppearance(
     mouthDepth: overrides.face?.mouthDepth ?? facePreset.mouthDepth,
     mouthPositionY: overrides.face?.mouthPositionY ?? facePreset.mouthPositionY,
     mouthPositionZ: overrides.face?.mouthPositionZ ?? facePreset.mouthPositionZ,
+    mouthFullness: overrides.face?.mouthFullness ?? facePreset.mouthFullness,
+    mouthCornerAngle: overrides.face?.mouthCornerAngle ?? facePreset.mouthCornerAngle,
+    mouthOpening: overrides.face?.mouthOpening ?? facePreset.mouthOpening,
     browWidth: overrides.face?.browWidth ?? facePreset.browWidth,
     browThickness: overrides.face?.browThickness ?? facePreset.browThickness,
     browSpacing: overrides.face?.browSpacing ?? facePreset.browSpacing,
     browPositionY: overrides.face?.browPositionY ?? facePreset.browPositionY,
     browAngle: overrides.face?.browAngle ?? facePreset.browAngle,
+    browArch: overrides.face?.browArch ?? facePreset.browArch,
+    browInnerHeight: overrides.face?.browInnerHeight ?? facePreset.browInnerHeight,
+    browOuterHeight: overrides.face?.browOuterHeight ?? facePreset.browOuterHeight,
+    browInnerForward: overrides.face?.browInnerForward ?? facePreset.browInnerForward,
+    browOuterForward: overrides.face?.browOuterForward ?? facePreset.browOuterForward,
     hairScale: overrides.face?.hairScale ?? facePreset.hairScale,
     hairWidth: overrides.face?.hairWidth ?? facePreset.hairWidth,
     hairHeight: overrides.face?.hairHeight ?? facePreset.hairHeight,
     hairDepth: overrides.face?.hairDepth ?? facePreset.hairDepth,
     hairPositionY: overrides.face?.hairPositionY ?? facePreset.hairPositionY,
     hairPositionZ: overrides.face?.hairPositionZ ?? facePreset.hairPositionZ,
+    hairCrownWidth: overrides.face?.hairCrownWidth ?? facePreset.hairCrownWidth,
+    hairCrownHeight: overrides.face?.hairCrownHeight ?? facePreset.hairCrownHeight,
+    hairCrownDepth: overrides.face?.hairCrownDepth ?? facePreset.hairCrownDepth,
+    hairCrownGrowIn: overrides.face?.hairCrownGrowIn ?? facePreset.hairCrownGrowIn,
+    hairBackWidth: overrides.face?.hairBackWidth ?? facePreset.hairBackWidth,
+    hairBackHeight: overrides.face?.hairBackHeight ?? facePreset.hairBackHeight,
+    hairBackDepth: overrides.face?.hairBackDepth ?? facePreset.hairBackDepth,
+    hairBackGrowIn: overrides.face?.hairBackGrowIn ?? facePreset.hairBackGrowIn,
+    hairSideWidth: overrides.face?.hairSideWidth ?? facePreset.hairSideWidth,
+    hairSideHeight: overrides.face?.hairSideHeight ?? facePreset.hairSideHeight,
+    hairSideDepth: overrides.face?.hairSideDepth ?? facePreset.hairSideDepth,
   };
 
   const appearance: CharacterAppearance = {
@@ -1481,6 +1624,35 @@ function limb(length: number, radius: number, color: number): THREE.Mesh {
   return mesh;
 }
 
+// Waist frustum: an elliptical tapered section whose TOP matches the chest
+// boundary and whose BOTTOM matches the authored waist. Radii (both X width
+// and Z depth) are baked into the geometry because mesh.scale cannot taper
+// top vs bottom independently. Each ring's X/Z radii interpolate top→bottom so
+// BOTH width and depth are continuous at the chest seam. Centered at origin;
+// the mesh position places its center.
+function makeWaistGeometry(
+  topRadiusX: number,
+  bottomRadiusX: number,
+  topRadiusZ: number,
+  bottomRadiusZ: number,
+  height: number
+) {
+  const geo = new THREE.CylinderGeometry(1, 1, height, 20, 1, false);
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  const half = height / 2;
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    // t: 0 at top (+half), 1 at bottom (-half). End caps share ring verts.
+    const t = (half - y) / height;
+    const rx = topRadiusX + (bottomRadiusX - topRadiusX) * t;
+    const rz = topRadiusZ + (bottomRadiusZ - topRadiusZ) * t;
+    pos.setX(i, pos.getX(i) * rx);
+    pos.setZ(i, pos.getZ(i) * rz);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
 function createDiscVisual(color: number): THREE.Mesh {
   const geometry = new THREE.CylinderGeometry(0.124, 0.124, 0.027, 20);
   const material = new THREE.MeshStandardMaterial({ color, roughness: 0.45 });
@@ -1668,11 +1840,13 @@ export class Face {
       },
     },
     brows: {
-      left: undefined as THREE.Mesh | undefined,
-      right: undefined as THREE.Mesh | undefined,
+      left: undefined as THREE.Group | undefined,
+      right: undefined as THREE.Group | undefined,
     },
     nose: undefined as THREE.Mesh | undefined,
-    mouth: undefined as THREE.Mesh | undefined,
+    mouth: undefined as THREE.Group | undefined,
+    mouthUpper: undefined as THREE.Mesh | undefined,
+    mouthLower: undefined as THREE.Mesh | undefined,
     hairRoot: undefined as THREE.Group | undefined,
   };
   readonly ready: Promise<void>;
@@ -1792,17 +1966,33 @@ export class Face {
     this.root.add(irisRight);
 
     const browMaterial = new THREE.MeshStandardMaterial({ color: 0x433129, roughness: 0.85 });
-    const browLeft = new THREE.Mesh(new THREE.BoxGeometry(0.066, 0.018, 0.01), browMaterial);
-    browLeft.name = 'brow-left';
-    browLeft.position.set(-0.06, 0.086, 0.124);
-    browLeft.rotation.z = 0.12;
-    this.root.add(browLeft);
-
-    const browRight = browLeft.clone();
-    browRight.name = 'brow-right';
-    browRight.position.x = 0.06;
-    browRight.rotation.z = -0.12;
-    this.root.add(browRight);
+    // Procedural eyebrow: a 3-region tapered shape (inner / center / outer) that
+    // can arch, instead of a flat rectangular block. Each brow is a small group
+    // of three soft capsules forming a gentle arc following the forehead.
+    const buildBrow = (side: 1 | -1) => {
+      const brow = new THREE.Group();
+      brow.name = side < 0 ? 'brow-left' : 'brow-right';
+      // Three tapered regions from inner (near nose) to outer (temple).
+      const regions = [
+        { name: 'inner', x: 0.024, r: 0.011, len: 0.024 },
+        { name: 'center', x: 0.0, r: 0.0125, len: 0.026 },
+        { name: 'outer', x: -0.024, r: 0.009, len: 0.024 },
+      ];
+      regions.forEach((reg) => {
+        const seg = new THREE.Mesh(new THREE.CapsuleGeometry(reg.r, reg.len, 4, 8), browMaterial);
+        seg.name = `brow-seg-${reg.name}`;
+        // local X = inner(+) toward nose ... outer(-) toward temple (per side sign)
+        seg.position.set(side * reg.x, 0, 0);
+        seg.rotation.z = Math.PI / 2; // capsules lie along X
+        brow.add(seg);
+      });
+      brow.position.set(side * 0.06, 0.086, 0.124);
+      brow.rotation.z = side * -0.12;
+      return brow;
+    };
+    const browLeft = buildBrow(-1);
+    const browRight = buildBrow(1);
+    this.root.add(browLeft, browRight);
 
     const eyelidLeft = new THREE.Mesh(
       new THREE.BoxGeometry(0.06, 0.014, 0.014),
@@ -1829,14 +2019,31 @@ export class Face {
     nose.scale.set(0.95, 0.98, 1.1);
     this.root.add(nose);
 
-    const mouth = new THREE.Mesh(
-      new THREE.TorusGeometry(0.024, 0.004, 8, 28, Math.PI),
-      new THREE.MeshStandardMaterial({ color: 0xc68080, roughness: 0.9 })
-    );
-    mouth.name = 'mouth-part';
-    mouth.position.set(0, -0.12, 0.124);
-    mouth.rotation.z = Math.PI;
-    this.root.add(mouth);
+    // Mouth: a mouth-root group owning separate upper/lower lip meshes so the
+    // feature is clearly visible and parameterizable. The lip shape is a
+    // unit-radius sphere scaled into a rounded lip form at apply() time
+    // (deterministic from baseline + current parameters).
+    const lipMaterial = new THREE.MeshStandardMaterial({ color: 0xc1615f, roughness: 0.75 });
+    const lipGeometry = new THREE.SphereGeometry(1, 20, 14);
+
+    const upperLip = new THREE.Mesh(lipGeometry.clone(), lipMaterial);
+    upperLip.name = 'mouth-upper-lip';
+    upperLip.castShadow = false;
+    const lowerLip = new THREE.Mesh(lipGeometry.clone(), lipMaterial);
+    lowerLip.name = 'mouth-lower-lip';
+    lowerLip.castShadow = false;
+
+    const mouthRoot = new THREE.Group();
+    mouthRoot.name = 'mouth-part';
+    mouthRoot.position.set(0, -0.12, 0.124);
+    // Baseline lip rest positions/scale (relative to mouth-root). All runtime
+    // transforms are derived from these baselines + the current parameters.
+    upperLip.position.set(0, 0.006, 0.0);
+    upperLip.scale.set(0.034, 0.0075, 0.011);
+    lowerLip.position.set(0, -0.0055, 0.0);
+    lowerLip.scale.set(0.03, 0.0085, 0.011);
+    mouthRoot.add(upperLip, lowerLip);
+    this.root.add(mouthRoot);
 
     this.faceParts.head = head;
     this.faceParts.jaw = jaw;
@@ -1851,7 +2058,9 @@ export class Face {
     this.faceParts.brows.left = browLeft;
     this.faceParts.brows.right = browRight;
     this.faceParts.nose = nose;
-    this.faceParts.mouth = mouth;
+    this.faceParts.mouth = mouthRoot;
+    this.faceParts.mouthUpper = upperLip;
+    this.faceParts.mouthLower = lowerLip;
     this.faceParts.hairRoot = this.hairRoot ?? new THREE.Group();
 
     [
@@ -1868,7 +2077,9 @@ export class Face {
       eyelidLeft,
       eyelidRight,
       nose,
-      mouth,
+      mouthRoot,
+      upperLip,
+      lowerLip,
     ].forEach((part) => this.captureBaseline(part));
 
     this.addHair();
@@ -2034,43 +2245,58 @@ export class Face {
       const earSize = this.advancedValue('earSize');
       const backLen = this.advancedValue('backHairLength');
 
-      const shell = new THREE.Mesh(
-        new THREE.SphereGeometry(metrics.width * 0.42, 22, 16, 0, Math.PI * 2, 0.28, 1.0),
+      // THREE-PART HAIR ARCHITECTURE (default male Buzz Cut):
+      //   hair-crown       -> forehead hairline, top of head, crown (CLOSED top)
+      //   hair-back        -> rear skull coverage, crown->back transition
+      //   hair-side-left/right -> temple/sideburn coverage (mirrored pair)
+      // All are children of hair-root so the whole hairstyle follows the head.
+      // Each is sized/positioned from getSkullMetrics() so the fitted baseline
+      // conforms to the head shell, and each baseline is captured for
+      // deterministic slider-driven transforms (no cumulative drift).
+
+      // 1) CROWN: a closed cap over the top of the skull. phiStart 0 (pole)
+      //    closes the top; phiLength sweeps down to the hairline. Slightly
+      //    larger radius + wider sweep so it overlaps the back piece (no seam).
+      const crown = new THREE.Mesh(
+        new THREE.SphereGeometry(metrics.width * 0.44, 22, 16, 0, Math.PI * 2, 0, 1.34),
         hairMaterial
       );
-      shell.name = 'hair-buzz-shell';
-      shell.scale.set(1.0, 0.5, 0.96);
-      shell.position.set(
+      crown.name = 'hair-crown';
+      crown.scale.set(1.0, 0.82, 0.98);
+      crown.position.set(
         metrics.center.x,
         metrics.center.y + metrics.height * 0.1,
         metrics.center.z - metrics.depth * 0.02
       );
-      hairRoot.add(shell);
+      hairRoot.add(crown);
 
-      // Back hair: extends the shell down the back of the skull.
-      if (backLen > 0.01) {
-        const back = new THREE.Mesh(
-          new THREE.SphereGeometry(metrics.width * 0.4, 18, 14, 0, Math.PI * 2, 1.0, 0.7 * backLen),
-          hairMaterial
-        );
-        back.name = 'hair-buzz-back';
-        back.scale.set(1.0, 0.6, 0.9);
-        back.position.set(
-          metrics.center.x,
-          metrics.center.y - metrics.height * 0.04,
-          metrics.backZ + metrics.depth * 0.04
-        );
-        hairRoot.add(back);
-      }
+      // 2) BACK: rear skull coverage. A squashed sphere cap hugging the back of
+      //    the head; its top overlaps the crown's rear edge so they stay
+      //    connected. backHairLength controls how far down the back it reaches.
+      const back = new THREE.Mesh(
+        new THREE.SphereGeometry(metrics.width * 0.46, 18, 14),
+        hairMaterial
+      );
+      back.name = 'hair-back';
+      back.scale.set(0.94, 0.55 + 0.3 * Math.min(backLen, 2), 0.5);
+      back.position.set(
+        metrics.center.x,
+        metrics.center.y + metrics.height * 0.02 - backLen * 0.03,
+        metrics.center.z - metrics.depth * 0.34
+      );
+      hairRoot.add(back);
 
-      // Sideburns: short vertical strips in front of the ears.
+      // 3) SIDES / SIDEBURNS: temple + sideburn coverage in front of the ears.
+      //    Mirrored pair; sideburnLength/Width control each strip. Parented to
+      //    hair-root so they move with the hairstyle but sit just outside the
+      //    skull, clear of the ears.
       if (sbLen > 0.01 && sbWidth > 0.01) {
         for (const side of [-1, 1]) {
           const sb = new THREE.Mesh(
             new THREE.CapsuleGeometry(0.014 * sbWidth, 0.05 * sbLen, 4, 8),
             hairMaterial
           );
-          sb.name = side < 0 ? 'sideburn-left' : 'sideburn-right';
+          sb.name = side < 0 ? 'hair-side-left' : 'hair-side-right';
           sb.position.set(
             metrics.center.x + side * metrics.width * 0.4,
             metrics.center.y - metrics.height * 0.04,
@@ -2103,6 +2329,10 @@ export class Face {
         // up the ears.
         this.root.add(ear);
       }
+
+      // Capture each hair child's baseline so apply() can re-derive transforms
+      // deterministically (crown height scales geometry, never translates).
+      hairRoot.children.forEach((child) => this.captureBaseline(child));
 
       console.log('[procedural hair]', {
         style: hairStyle,
@@ -2719,6 +2949,29 @@ export class Face {
       );
       browLeft.rotation.z = leftBaseline.rotation.z + angleRad;
       browRight.rotation.z = rightBaseline.rotation.z - angleRad;
+
+      // 3-region brow shape: arch raises the CENTER segment; inner/outer height
+      // and forward/back move those segments independently. Mirrored per side so
+      // the normal face stays symmetric without editing each brow separately.
+      const arch = this.advancedValue('browArch'); // -1..1 raises/lowers center
+      const innerH = this.advancedValue('browInnerHeight');
+      const outerH = this.advancedValue('browOuterHeight');
+      const innerF = this.advancedValue('browInnerForward');
+      const outerF = this.advancedValue('browOuterForward');
+      [browLeft, browRight].forEach((brow) => {
+        const inner = brow.getObjectByName('brow-seg-inner');
+        const center = brow.getObjectByName('brow-seg-center');
+        const outer = brow.getObjectByName('brow-seg-outer');
+        if (center) center.position.y = arch * 0.02;
+        if (inner) {
+          inner.position.y = innerH * 0.2;
+          inner.position.z = innerF * 0.2;
+        }
+        if (outer) {
+          outer.position.y = outerH * 0.2;
+          outer.position.z = outerF * 0.2;
+        }
+      });
     }
 
     const nose = this.faceParts.nose;
@@ -2744,8 +2997,8 @@ export class Face {
       );
     }
 
-    const mouth = this.faceParts.mouth;
-    if (mouth) {
+    const mouthRoot = this.faceParts.mouth;
+    if (mouthRoot) {
       const mouthSize = clampFaceParameterValue('mouth', this.config.mouth);
       const mouthAdv = {
         width: this.advancedValue('mouthWidth'),
@@ -2753,21 +3006,58 @@ export class Face {
         depth: this.advancedValue('mouthDepth'),
         posY: this.advancedValue('mouthPositionY'),
         posZ: this.advancedValue('mouthPositionZ'),
+        fullness: this.advancedValue('mouthFullness'),
+        cornerAngle: this.advancedValue('mouthCornerAngle'), // degrees
+        opening: this.advancedValue('mouthOpening'), // 0..1
       };
-      const baseline = this.getBaseline(mouth);
-      const mouthScaleX = 1.06 + (mouthSize - 0.5) * 1.15;
-      const mouthScaleY = 0.86 + (mouthSize - 0.5) * 0.5;
-      mouth.scale.set(
-        baseline.scale.x * mouthScaleX * mouthAdv.width,
-        baseline.scale.y * mouthScaleY * mouthAdv.height,
-        baseline.scale.z * 1.08 * mouthAdv.depth
+      const upper = this.faceParts.mouthUpper;
+      const lower = this.faceParts.mouthLower;
+      // Root: position (vertical / forward-back) + overall width/depth. Height
+      // and fullness affect the lips themselves, not the root placement.
+      const rootBaseline = this.getBaseline(mouthRoot);
+      const macroWidth = 1.06 + (mouthSize - 0.5) * 1.15;
+      const macroDepth = 1.0;
+      mouthRoot.position.set(
+        rootBaseline.position.x,
+        rootBaseline.position.y + mouthAdv.posY,
+        rootBaseline.position.z + mouthAdv.posZ
       );
-      mouth.position.set(
-        baseline.position.x,
-        baseline.position.y - (mouthSize - 0.5) * 0.012 + mouthAdv.posY,
-        baseline.position.z + (mouthSize - 0.5) * 0.018 + mouthAdv.posZ
+      mouthRoot.scale.set(
+        rootBaseline.scale.x * macroWidth * mouthAdv.width,
+        rootBaseline.scale.y,
+        rootBaseline.scale.z * macroDepth * mouthAdv.depth
       );
-      mouth.rotation.z = Math.PI + (mouthSize - 0.5) * 0.75;
+      mouthRoot.rotation.set(0, 0, 0);
+
+      if (upper && lower) {
+        const ub = this.getBaseline(upper);
+        const lb = this.getBaseline(lower);
+        const full = mouthAdv.fullness;
+        const height = mouthAdv.height;
+        // Corner angle (degrees -> roll around the forward Z axis). Applied
+        // symmetrically: upper lip tilts one way, lower the other, so the
+        // corners rise/fall together as a smile/frown.
+        const cornerRad = THREE.MathUtils.degToRad(mouthAdv.cornerAngle);
+        // Opening: vertical separation between the lips.
+        const gap = mouthAdv.opening * 0.012;
+        const macroHeight = 0.86 + (mouthSize - 0.5) * 0.5;
+
+        upper.position.set(ub.position.x, ub.position.y + gap * 0.5, ub.position.z);
+        upper.rotation.set(0, 0, -cornerRad);
+        upper.scale.set(
+          ub.scale.x,
+          ub.scale.y * full * (0.6 + height * 0.4) * macroHeight,
+          ub.scale.z * full * (0.7 + height * 0.3)
+        );
+
+        lower.position.set(lb.position.x, lb.position.y - gap * 0.5, lb.position.z);
+        lower.rotation.set(0, 0, cornerRad);
+        lower.scale.set(
+          lb.scale.x,
+          lb.scale.y * full * (0.6 + height * 0.4) * macroHeight,
+          lb.scale.z * full * (0.7 + height * 0.3)
+        );
+      }
     }
 
     const hairRoot = this.faceParts.hairRoot;
@@ -2781,9 +3071,14 @@ export class Face {
         posZ: this.advancedValue('hairPositionZ'),
       };
       const baseline = this.getBaseline(hairRoot);
+      // Keep the hair ROOT seated on the skull. Width/Depth/Scale resize the
+      // fitted baseline; Height grows the CROWN geometry (applied per-mesh
+      // below) rather than scaling the whole root about y=0 (which detached
+      // the cap). Vertical/Forward are small offsets from the fitted baseline,
+      // not free repositioning.
       hairRoot.scale.set(
         baseline.scale.x * hairAdv.scale * hairAdv.width,
-        baseline.scale.y * hairAdv.scale * hairAdv.height,
+        baseline.scale.y * hairAdv.scale,
         baseline.scale.z * hairAdv.scale * hairAdv.depth
       );
       hairRoot.position.set(
@@ -2791,6 +3086,70 @@ export class Face {
         baseline.position.y + hairAdv.posY,
         baseline.position.z + hairAdv.posZ
       );
+      // Per-region control: Crown/Back/Sides each get Width/Height/Depth on top
+      // of the global hair transform. Global Height grows the crown (and the
+      // back, slightly, for continuity); the per-region Height multiplies that
+      // further. All transforms derive from each child's captured baseline.
+      const crownH = hairAdv.height;
+      const region = {
+        'hair-crown': {
+          w: this.advancedValue('hairCrownWidth'),
+          h: this.advancedValue('hairCrownHeight'),
+          d: this.advancedValue('hairCrownDepth'),
+        },
+        'hair-back': {
+          w: this.advancedValue('hairBackWidth'),
+          h: this.advancedValue('hairBackHeight'),
+          d: this.advancedValue('hairBackDepth'),
+        },
+        'hair-side-left': {
+          w: this.advancedValue('hairSideWidth'),
+          h: this.advancedValue('hairSideHeight'),
+          d: this.advancedValue('hairSideDepth'),
+        },
+        'hair-side-right': {
+          w: this.advancedValue('hairSideWidth'),
+          h: this.advancedValue('hairSideHeight'),
+          d: this.advancedValue('hairSideDepth'),
+        },
+      } as Record<string, { w: number; h: number; d: number }>;
+      hairRoot.children.forEach((child) => {
+        if (!(child instanceof THREE.Mesh)) return;
+        const cb = this.getBaseline(child);
+        const r = region[child.name];
+        // Global crown-height baseline behavior (crown grows; back coordinates).
+        let globalY = 1;
+        if (child.name === 'hair-crown') globalY = crownH;
+        else if (child.name === 'hair-back') globalY = 1 + (crownH - 1) * 0.6;
+        const rx = r?.w ?? 1;
+        const ry = (r?.h ?? 1) * globalY;
+        const rz = r?.d ?? 1;
+        child.scale.set(cb.scale.x * rx, cb.scale.y * ry, cb.scale.z * rz);
+        child.position.copy(cb.position);
+
+        // GROW IN: one-sided/directional deformation. Anchor the TOP edge and
+        // extend the BOTTOM edge downward. Deterministic from baseline: reset
+        // position/scale from baseline first, then apply the growth offsets.
+        child.position.copy(cb.position);
+        const crownGrow = child.name === 'hair-crown' ? this.advancedValue('hairCrownGrowIn') : 1;
+        const backGrow = child.name === 'hair-back' ? this.advancedValue('hairBackGrowIn') : 1;
+        const grow =
+          child.name === 'hair-crown' ? crownGrow : child.name === 'hair-back' ? backGrow : 1;
+        // Crown also nudges forward as it grows over the forehead/temples.
+        if (child.name === 'hair-crown') {
+          child.position.z = cb.position.z + (crownGrow - 1) * 0.02;
+        }
+        if (grow !== 1) {
+          // Anchor the TOP edge. Mesh scaling happens about the local origin,
+          // so to keep the top vertex fixed we shift the position down by
+          // (g-1) * baselineTopLocalY. topLocal = geometryTop * baselineScaleY.
+          child.geometry.computeBoundingBox();
+          const topLocal = child.geometry.boundingBox!.max.y * cb.scale.y;
+          child.scale.y = cb.scale.y * ry * grow;
+          // top stays: pos' = pos - (g-1)*topLocal  =>  grows downward only.
+          child.position.y = cb.position.y - (grow - 1) * topLocal;
+        }
+      });
     }
 
     const beard = this.root.getObjectByName('beard-part');
@@ -2839,7 +3198,8 @@ export class Golfer {
   private attachPoints = new Map<string, THREE.Object3D>();
   private disc!: THREE.Mesh;
   private discVisible = false;
-  private discHand: 'right' | 'left' = 'right';
+  // Held disc is owned by the LEFT hand by default (reference correction).
+  private discHand: 'right' | 'left' = 'left';
   private face!: Face;
   public appearance: GolferAppearance;
   private baseY = 0;
@@ -2880,6 +3240,7 @@ export class Golfer {
     this.build();
     this.applyProfileToRig();
     this.applyPose(STAND_POSE, STAND_POSE, 0);
+    this.fitGarments();
   }
 
   private normalizeAppearance(input: PartialGolferAppearance): GolferAppearance {
@@ -2896,6 +3257,10 @@ export class Golfer {
       pantsFit: legacy.pantsFit ?? legacy.outfit?.pantsFit ?? 0.9,
     };
     const face = {
+      // Spread the FULL provided face first so advanced per-feature overrides
+      // (browArch, cheekSize, etc.) survive; the legacy macro keys then fill any
+      // gaps from the preset.
+      ...legacy.face,
       brow: legacy.brow ?? legacy.face?.brow ?? facePreset.brow,
       nose: legacy.nose ?? legacy.face?.nose ?? facePreset.nose,
       eyeSpacing: legacy.eyeSpacing ?? legacy.face?.eyeSpacing ?? facePreset.eyeSpacing,
@@ -2970,54 +3335,105 @@ export class Golfer {
     const hips = this.joint('hips', this.root, new THREE.Vector3(0, 0.92, 0));
 
     // SHORTS are CLOTHING, not the anatomical pelvis. `hips` remains the
-    // semantic pelvis joint; `shorts-root` is visible garment geometry that
-    // follows the pelvis. Never map pose semantics onto shorts parts.
-    // Assembled as a waist/hip section plus two short legs so the garment
-    // reads as shorts and the thighs emerge beneath it (a single vertical
-    // capsule always fills the gap between the legs and hides the thighs).
+    // semantic pelvis joint; `shorts-root` is the garment root that follows the
+    // pelvis. The garment is organized into THREE semantic regions:
+    //   shorts-waist-root  -> upper shorts + waistband/belt + buckle (one assembly)
+    //   shorts-leg-left    -> left fabric leg
+    //   shorts-leg-right   -> right fabric leg
+    // Never map pose semantics onto shorts parts.
     const shortsRoot = new THREE.Group();
     shortsRoot.name = 'shorts-root';
     hips.add(shortsRoot);
     const shortsMat = () =>
       new THREE.MeshStandardMaterial({ color: this.appearance.shortsColor, roughness: 0.78 });
 
-    // Waist/hip section: a rounded section forming the seat AND rising up to
+    // UPPER SHORTS ASSEMBLY: waist/hip covering + waistband + buckle share one
+    // garment coordinate system so the belt never floats independently.
+    const shortsWaistRoot = new THREE.Group();
+    shortsWaistRoot.name = 'shorts-waist-root';
+    shortsRoot.add(shortsWaistRoot);
+
+    // Upper shorts: a rounded section covering the pelvis/seat and rising up to
     // meet the jersey (closes the skin gap at the waist). shortsLength scales
     // how tall it reaches.
     const shortsWaist = new THREE.Mesh(new THREE.SphereGeometry(0.19, 14, 12), shortsMat());
-    shortsWaist.name = 'shorts-waist';
+    shortsWaist.name = 'shorts-upper-part';
     shortsWaist.scale.set(1.18, 1.0, 0.94);
     shortsWaist.position.set(0, 0.12, 0);
     shortsWaist.castShadow = true;
-    shortsRoot.add(shortsWaist);
+    shortsWaistRoot.add(shortsWaist);
 
-    // Short legs: capsules hanging from the hip line, long enough to cover the
-    // upper thigh (shortLegLength scales them).
+    // Short legs: fabric shells around the UPPER THIGH. Each leg is centered on
+    // its corresponding anatomical thigh (hipL/hipR sit at hips-local ±0.11) and
+    // its baseline radial size derives from the thigh radius (0.09) plus garment
+    // ease — so the garment follows the anatomy when Leg Spacing / Thigh Width /
+    // Thigh Depth change. shortLegLength scales how far down the thigh it reaches.
     for (const side of [-1, 1]) {
-      const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.09, 0.3, 6, 12), shortsMat());
-      leg.name = side < 0 ? 'shorts-left' : 'shorts-right';
-      leg.position.set(side * 0.105, -0.06, 0);
+      const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.108, 0.22, 6, 12), shortsMat());
+      leg.name = side < 0 ? 'shorts-leg-left' : 'shorts-leg-right';
+      leg.position.set(side * 0.11, -0.16, 0);
       leg.castShadow = true;
       shortsRoot.add(leg);
     }
 
+    // ANATOMICAL PELVIS — BODY geometry, NOT clothing. This is the missing
+    // WAIST → HIPS transition: it flares from the finalized waist bottom
+    // (Waist Width/Depth) outward to the anatomical hip line (Hip Width/Depth).
+    // Parented to the `hips` joint so it moves with the pelvis. Skin material.
+    // Rebuilt deterministically in applyProfileToRig. The shorts garment is
+    // separate and must never substitute for this anatomical body geometry.
+    const pelvisBody = new THREE.Mesh(
+      makeWaistGeometry(0.19, 0.19, 0.19 * 0.76, 0.19 * 0.76, 0.16),
+      new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.78 })
+    );
+    pelvisBody.name = 'pelvis-body-part';
+    pelvisBody.position.set(0, -0.06, 0);
+    pelvisBody.castShadow = true;
+    hips.add(pelvisBody);
+
+    // ANATOMICAL HIP MASSES — BODY geometry, NOT clothing. Subtle rounded
+    // volumes centered on the anatomical hip sockets (hipL/hipR) that bridge
+    // the central pelvis into the thighs. They overlap the central pelvis and
+    // the top of each thigh intentionally so there are no visible gaps. Skin
+    // material; ANATOMY (visible in Body Only). Width/depth respond to
+    // hipWidth/hipDepth; scaled in applyProfileToRig.
+    const hipMat = () =>
+      new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.78 });
+    for (const side of [-1, 1]) {
+      const hipMass = new THREE.Mesh(new THREE.SphereGeometry(0.11, 14, 12), hipMat());
+      hipMass.name = side < 0 ? 'pelvis-hip-left' : 'pelvis-hip-right';
+      // Centered on the anatomical hip socket (hipL/hipR local x=±0.11,
+      // y=-0.12). Slightly overlapping the central pelvis (y) and the thigh
+      // top so the chain reads continuous. Flattened front/back for a subtle
+      // hip rather than a ball.
+      hipMass.position.set(side * 0.11, -0.1, 0.0);
+      hipMass.scale.set(1.0, 0.9, 0.8);
+      hipMass.castShadow = true;
+      hips.add(hipMass);
+    }
+
     const torso = this.joint('torso', hips, new THREE.Vector3(0, 0.02, 0));
-    const chest = limb(0.42, 0.19, this.appearance.shirtColor);
+    // UPPER CHEST / RIBCAGE ONLY. Short capsule high on the torso. Shortened
+    // (length 0.16) so its bottom meets the abdomen near the ribcage line with
+    // a thin seam instead of a deep overlap. Chest Width controls the ribcage.
+    const chest = limb(0.16, 0.19, this.appearance.shirtColor);
     chest.name = 'torso-part';
     chest.material = createJerseyMaterial(this.appearance);
-    chest.geometry.translate(0, 0.62, 0);
+    chest.geometry.translate(0, 0.42, 0);
     chest.scale.set(0.98, 1, 0.76);
     torso.add(chest);
 
-    // LOWER TORSO: the jersey bottom region that tucks into the belt/shorts.
-    // A separate mesh so its width/depth can be controlled independently of the
-    // chest above it.
+    // WAIST / ABDOMEN: a frustum (top radius ≠ bottom radius) forming the
+    // CHEST → WAIST taper. Top radius follows chestWidth/chestDepth; bottom
+    // follows lowerTorsoWidth/lowerTorsoDepth (Waist). Radii are baked into the
+    // geometry (mesh.scale can't taper top vs bottom). Shortened to 0.24 so the
+    // abdomen no longer reads as a long cylinder; rebuilt in applyProfileToRig.
     const lowerTorso = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.185, 0.19, 0.34, 16),
+      makeWaistGeometry(0.19, 0.19, 0.19 * 0.76, 0.19 * 0.76, 0.24),
       createJerseyMaterial(this.appearance)
     );
     lowerTorso.name = 'lower-torso-part';
-    lowerTorso.position.set(0, 0.18, 0);
+    lowerTorso.position.set(0, 0.14, 0);
     lowerTorso.castShadow = true;
     torso.add(lowerTorso);
 
@@ -3028,13 +3444,9 @@ export class Golfer {
     collar.scale.set(1.0, 1, 0.74);
     torso.add(collar);
 
-    const placket = new THREE.Mesh(
-      new THREE.BoxGeometry(0.038, 0.22, 0.016),
-      new THREE.MeshStandardMaterial({ color: accentColor, roughness: 0.8 })
-    );
-    placket.name = 'placket-part';
-    placket.position.set(0, 0.52, 0.148);
-    torso.add(placket);
+    // The former placket-part was a purely decorative floating red bar in front
+    // of the chest. It has been REMOVED (not merely moved) per the m600 fix;
+    // the jersey body/collar remain intact.
 
     // Jersey hem / belt: a ring at the waist plus a front buckle. Belt params
     // (outfit) control band thickness/width/vertical position and buckle size.
@@ -3047,7 +3459,9 @@ export class Golfer {
     const beltColor = this.appearance.beltColor ?? this.appearance.shortsColor; // secondary slot default
     const beltTightness = this.appearance.outfit?.beltTightness ?? 1;
 
-    // Belt: a root group carries the ring + buckle so both share width/vertical
+    // Belt/waistband belongs to the SHORTS WAIST ASSEMBLY, not the torso — so
+    // the belt sits on the shorts and never floats independently of them. The
+    // root group carries the ring + buckle so both share width/vertical
     // transforms and never detach. The ring is rotated flat; the buckle is a
     // sibling (not a child of the ring) so it isn't tipped by the ring's rotation.
     const beltRoot = new THREE.Group();
@@ -3056,7 +3470,7 @@ export class Golfer {
     // Z-scale 1.0 (not flattened like the chest) so the belt ring sits PROUD of
     // the shorts at the waist — belt in front of shorts.
     beltRoot.scale.set(beltW, 1.0, 1);
-    torso.add(beltRoot);
+    shortsWaistRoot.add(beltRoot);
 
     // Ring radius scales with beltTightness (smaller = snugger to the body).
     const hem = new THREE.Mesh(
@@ -3239,6 +3653,20 @@ export class Golfer {
       const kneeName: JointName = isRight ? 'kneeR' : 'kneeL';
 
       const hip = this.joint(hipName, hips, new THREE.Vector3(side * 0.11, -0.12, 0));
+      // HIP CAP: a small skin volume at the hip socket that overlaps the pelvis
+      // above and the thigh top below. It rotates WITH the thigh (parented to the
+      // hip joint), so it covers the mechanical seam during hip articulation —
+      // the ball-and-socket visual cover. Sized to bridge the gap, not a bulge.
+      const hipCap = new THREE.Mesh(
+        new THREE.SphereGeometry(0.12, 14, 12),
+        new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.78 })
+      );
+      hipCap.name = isRight ? 'hip-cap-right' : 'hip-cap-left';
+      hipCap.position.set(0, 0.0, 0);
+      hipCap.scale.set(1.0, 1.05, 0.95);
+      hipCap.castShadow = true;
+      hip.add(hipCap);
+
       const thigh = limb(0.34, 0.09, this.appearance.skinTone);
       thigh.name = isRight ? 'thigh-right' : 'thigh-left';
       hip.add(thigh);
@@ -3248,9 +3676,10 @@ export class Golfer {
       calf.name = isRight ? 'calf-right' : 'calf-left';
       knee.add(calf);
 
+      // Socks follow the team PRIMARY color (shirtColor per applyBranding).
       const sock = new THREE.Mesh(
         new THREE.CylinderGeometry(0.08, 0.081, 0.16, 12),
-        new THREE.MeshStandardMaterial({ color: 0xf2f4f8, roughness: 0.8 })
+        new THREE.MeshStandardMaterial({ color: this.appearance.shirtColor, roughness: 0.8 })
       );
       sock.name = isRight ? 'sock-right' : 'sock-left';
       sock.position.y = -0.31;
@@ -3278,14 +3707,16 @@ export class Golfer {
       knee.add(toe);
     }
 
-    // ONE held disc, attached to the active discGrip (default = right hand).
+    // ONE held disc, attached to the active discGrip (default = LEFT hand).
     // Reuses the shared createDiscVisual construction. Position/orientation is
     // LOCAL to the grip node so the disc follows the hand via the hierarchy —
     // no render-loop following. Do NOT call equipAccessory('disc') here.
     this.disc = createDiscVisual(0xe03a2f);
     this.disc.name = 'held-disc';
     this.disc.rotation.set(Math.PI / 2, 0, 0);
-    this.disc.scale.setScalar(0.5);
+    // Moderately larger than the prior 0.5 so it reads as a disc at gameplay
+    // distance, but not the oversized large-disc experiment.
+    this.disc.scale.setScalar(0.72);
     this.disc.position.set(0, -0.02, 0.02);
     this.disc.visible = this.discVisible;
     this.attachDiscTo(this.discHand);
@@ -3348,35 +3779,92 @@ export class Golfer {
 
     const torso = this.joints.get('torso');
     if (torso) {
-      torso.scale.set(1, profile.torsoLength, 1.05 + (1 - profile.torsoTaper) * 0.4);
+      // torsoLength scales the torso JOINT in Y only. The legacy torsoTaper
+      // parent-Z scale is removed (neutralized) so the new Chest Depth /
+      // Waist Depth controls own depth precisely without a broad parent
+      // multiplier. See "torsoTaper compatibility" note below.
+      torso.scale.set(1, profile.torsoLength, 1);
     }
 
-    // Chest shape: width (X) + depth (Z, affects the side view silhouette).
+    // CHEST = upper ribcage. chestWidth/chestDepth scale the (rescoped, short)
+    // chest capsule radially. Because torso-part no longer reaches the waist,
+    // Chest Width now reads as ribcage width, not whole-shirt width.
     const chest = this.root.getObjectByName('torso-part');
     if (chest) {
       chest.scale.x = 0.98 * (profile.chestWidth ?? 1);
       chest.scale.z = 0.76 * (profile.chestDepth ?? 1);
     }
-    // Collar + placket follow the chest width so they stay aligned.
+    // Collar stays attached to the neck opening. It follows the chest only
+    // conservatively (sqrt dampens) so a wide chest does not blow out the
+    // collar. No new collar control is introduced.
     const collarMesh = this.root.getObjectByName('collar-part');
     if (collarMesh) {
-      collarMesh.scale.x = 1.0 * (profile.chestWidth ?? 1);
+      collarMesh.scale.x = 1.0 * Math.sqrt(profile.chestWidth ?? 1);
     }
 
-    // Lower torso (jersey bottom, tucked into belt/shorts): independent
-    // width (X) + depth (Z).
+    // WAIST / LOWER TORSO: rebuild the tapered section so its TOP matches the
+    // chest boundary exactly (width AND depth) and its BOTTOM follows the
+    // authored Waist Width/Depth — one continuous surface, no horizontal ledge.
+    // All four radii are baked into geometry (mesh.scale can't taper top vs
+    // bottom or width vs depth independently).
     const lowerTorso = this.root.getObjectByName('lower-torso-part');
-    if (lowerTorso) {
-      lowerTorso.scale.set(profile.lowerTorsoWidth ?? 1, 1, profile.lowerTorsoDepth ?? 1);
+    if (lowerTorso instanceof THREE.Mesh) {
+      const chestW = profile.chestWidth ?? 1;
+      const chestD = profile.chestDepth ?? 1;
+      const waistW = profile.lowerTorsoWidth ?? 1;
+      const waistD = profile.lowerTorsoDepth ?? 1;
+      // Chest bottom boundary (matches torso-part's scaled X and Z radii).
+      const topX = Math.max(0.01, 0.19 * 0.98 * chestW);
+      const topZ = Math.max(0.01, 0.19 * 0.76 * chestD);
+      // Waist boundary (authored).
+      const bottomX = Math.max(0.01, 0.19 * waistW);
+      const bottomZ = Math.max(0.01, 0.19 * waistD);
+      const old = lowerTorso.geometry;
+      lowerTorso.geometry = makeWaistGeometry(topX, bottomX, topZ, bottomZ, 0.24);
+      old.dispose();
+      // No mesh scale — radii are baked. Reset in case a prior frame scaled it.
+      lowerTorso.scale.set(1, 1, 1);
     }
 
-    // Waist: size scales the whole belt root (ring + buckle together) so the
-    // buckle never detaches. Thickness is handled by belt geometry at build.
-    const beltRoot = this.root.getObjectByName('belt-root');
-    if (beltRoot) {
-      const waist = profile.waistSize ?? 1;
-      beltRoot.scale.set((this.appearance.outfit?.beltWidth ?? 1) * waist, 1.0 * waist, 1);
+    // ANATOMICAL PELVIS (BODY, not clothing): flare from the finalized WAIST
+    // bottom outward to the HIP line. The pelvis TOP equals the waist bottom
+    // boundary (continuous seam — no averaging toward the hip). The pelvis
+    // BOTTOM flares to Hip Width/Depth. hipWidth also drives hip-joint spacing
+    // separately (below); here it sizes the pelvis skin, not the garment.
+    const pelvisBody = this.root.getObjectByName('pelvis-body-part');
+    if (pelvisBody instanceof THREE.Mesh) {
+      const waistW = profile.lowerTorsoWidth ?? 1;
+      const waistD = profile.lowerTorsoDepth ?? 1;
+      const hipW = profile.hipWidth ?? 1;
+      const hipD = profile.hipDepth ?? 1;
+      // Top == waist bottom (continuous with lower-torso-part).
+      const topX = Math.max(0.01, 0.19 * waistW);
+      const topZ = Math.max(0.01, 0.19 * waistD);
+      // Bottom == hip boundary. Hips are anatomically a bit wider/deeper than
+      // the waist baseline for a subtle male flare; derive from the semantic
+      // hipWidth/hipDepth rather than reusing the waist multiplier.
+      const bottomX = Math.max(0.01, 0.24 * hipW);
+      const bottomZ = Math.max(0.01, 0.2 * hipD);
+      const old = pelvisBody.geometry;
+      pelvisBody.geometry = makeWaistGeometry(topX, bottomX, topZ, bottomZ, 0.16);
+      old.dispose();
+      pelvisBody.scale.set(1, 1, 1);
     }
+
+    // ANATOMICAL HIP MASSES: scale with hipWidth (lateral X) and hipDepth
+    // (front/back Z). Subtle — these are hip-socket masses, not new sliders.
+    const hipMassW = profile.hipWidth ?? 1;
+    const hipMassD = profile.hipDepth ?? 1;
+    ['pelvis-hip-left', 'pelvis-hip-right'].forEach((name) => {
+      const m = this.root.getObjectByName(name);
+      if (m) {
+        m.scale.set(1.0 * hipMassW, 0.9, 0.8 * hipMassD);
+      }
+    });
+
+    // Belt fit is now BODY-DERIVED in fitGarments() (belt wraps the anatomical
+    // waist boundary). Waist Size / Belt Width are applied there as small style
+    // adjustments; the buckle follows automatically as a child of belt-root.
 
     const head = this.joints.get('head');
     if (head) {
@@ -3398,8 +3886,10 @@ export class Golfer {
       trapezius.scale.set(
         1.9 * (profile.trapeziusWidth ?? 1),
         0.55 * (profile.trapeziusHeight ?? 1),
-        0.9
+        0.9 * (profile.trapeziusDepth ?? 1)
       );
+      // Vertical placement: raise/lower the dome along the neck base.
+      trapezius.position.y = 0.66 * (profile.trapeziusVertical ?? 1);
     }
 
     // Shoulder placement: In/Out moves the pivot toward/away from the torso
@@ -3421,20 +3911,19 @@ export class Golfer {
     // dedicated shorts params scale the garment + each leg piece.
     const shortsRoot = this.root.getObjectByName('shorts-root');
     if (shortsRoot) {
-      // shortLegWidth scales the WHOLE garment (waist + both legs) radially —
-      // same scope as shortsForward moves. shortsWidth then fine-tunes the waist.
-      const legWidth = profile.shortLegWidth ?? 1;
+      // shortsWidth/shortsDepth size the whole garment; shortLegWidth is
+      // applied per-leg below so the waist stays under Shorts Width control.
       shortsRoot.scale.set(
-        profile.hipWidth * (profile.shortsWidth ?? 1) * legWidth,
+        profile.hipWidth * (profile.shortsWidth ?? 1),
         profile.shortsLength ?? 1,
-        profile.torsoTaper * legWidth * (profile.shortsDepth ?? 1)
+        profile.torsoTaper * (profile.shortsDepth ?? 1)
       );
       // shortsForward shifts the WHOLE garment (waist + legs) toward the front.
       shortsRoot.position.z = profile.shortsForward ?? 0;
       // shortsRise shifts the WHOLE garment up/down the torso (no stretch).
       shortsRoot.position.y = profile.shortsRise ?? 0;
     }
-    const shortsWaist = this.root.getObjectByName('shorts-waist');
+    const shortsWaist = this.root.getObjectByName('shorts-upper-part');
     if (shortsWaist) {
       // shortsLength scales overall garment height via the waist section too.
       shortsWaist.scale.set(
@@ -3444,19 +3933,8 @@ export class Golfer {
       );
       shortsWaist.position.y = 0.12;
     }
-    ['shorts-left', 'shorts-right'].forEach((name) => {
-      const leg = this.root.getObjectByName(name);
-      if (leg) {
-        // Only length here — width is applied to the whole shorts-root so it
-        // matches shortsForward's scope (waist + both legs). The capsule
-        // scales from its center, so shift it down by half the added height
-        // (capsule half-height = 0.24) to keep the top anchored at the hip
-        // line: lengthening extends DOWNWARD only.
-        const legLen = profile.shortLegLength ?? 1;
-        leg.scale.set(1, legLen, 1);
-        leg.position.y = -0.06 - 0.24 * (legLen - 1);
-      }
-    });
+    // (SHORTS LEGS block moved below the leg-scaling section so it reads the
+    // thigh's FINAL transform — see below.)
 
     if (shoulderL) {
       shoulderL.scale.set(profile.shoulderWidth, 1, 1);
@@ -3465,15 +3943,9 @@ export class Golfer {
       shoulderR.scale.set(profile.shoulderWidth, 1, 1);
     }
 
-    // Jersey sleeve: length scales down the arm (Y), width scales radially (X/Z).
-    const sleeveLength = this.appearance.outfit?.sleeveLength ?? 1;
-    const sleeveWidth = this.appearance.outfit?.sleeveWidth ?? 1;
-    ['sleeve-left', 'sleeve-right'].forEach((name) => {
-      const mesh = this.root.getObjectByName(name);
-      if (mesh) {
-        mesh.scale.set(sleeveWidth, sleeveLength, sleeveWidth);
-      }
-    });
+    // Jersey sleeve fit is now BODY-DERIVED in fitGarments() (sleeve follows the
+    // transformed upper arm). Sleeve Length/Width are applied there as small
+    // style adjustments, not direct geometry multipliers.
 
     // Arm length: scale the whole arm chain's Y (elbow offset + segments) so both
     // arms lengthen/shorten together.
@@ -3540,9 +4012,28 @@ export class Golfer {
       }
     });
 
-    // Leg width (legTaper): scale thigh + calf radially (X/Z), preserving length.
+    // Leg width (legTaper) scales thigh + calf radially; thighThickness adds a
+    // THIGH-only extra radial factor so thighs thicken independently of calves.
     const legTaper = profile.legTaper ?? 1;
-    ['thigh-left', 'thigh-right', 'calf-left', 'calf-right'].forEach((name) => {
+    const thighThickness = profile.thighThickness ?? 1;
+    ['thigh-left', 'thigh-right'].forEach((name) => {
+      const mesh = this.root.getObjectByName(name);
+      if (mesh) {
+        mesh.scale.x = legTaper * thighThickness;
+        mesh.scale.z = legTaper * thighThickness;
+      }
+    });
+    // Hip caps track the thigh/hip thickness so they keep bridging the seam as
+    // the body changes (subtle — they cover the socket, not create bulk).
+    ['hip-cap-left', 'hip-cap-right'].forEach((name) => {
+      const mesh = this.root.getObjectByName(name);
+      if (mesh) {
+        mesh.scale.x = 1.0 * legTaper * thighThickness;
+        mesh.scale.z = 0.95 * legTaper * thighThickness;
+        mesh.scale.y = 1.05;
+      }
+    });
+    ['calf-left', 'calf-right'].forEach((name) => {
       const mesh = this.root.getObjectByName(name);
       if (mesh) {
         mesh.scale.x = legTaper;
@@ -3550,15 +4041,12 @@ export class Golfer {
       }
     });
 
-    // Sock thickness: scale the sock cylinder radially.
-    const sockThickness = profile.sockThickness ?? 1;
-    ['sock-left', 'sock-right'].forEach((name) => {
-      const mesh = this.root.getObjectByName(name);
-      if (mesh) {
-        mesh.scale.x = sockThickness;
-        mesh.scale.z = sockThickness;
-      }
-    });
+    // (SHORTS LEGS fit moved into fitShortsLegs(), called AFTER the final pose
+    // is applied so it measures the thigh's rendered center — see setAppearance.)
+
+    // Sock fit is now BODY-DERIVED in fitGarments() (sock follows the
+    // transformed calf). Sock Thickness is applied there as a small ease/style
+    // adjustment rather than a direct radial multiplier.
 
     this.face?.setConfig({
       skinTone: this.appearance.skinTone,
@@ -3865,7 +4353,139 @@ export class Golfer {
     // Re-apply the neutral pose so appearance-driven pose params (e.g. armRaise)
     // take effect immediately in the Change Look preview without needing update().
     this.applyPose(STAND_POSE, STAND_POSE, 0);
+    // Fit garments to the FINAL transformed anatomy AFTER the pose so they track
+    // the rendered body. ANATOMY is the source of truth; garments derive their
+    // base fit and user controls are only small style/ease adjustments.
+    this.fitGarments();
     this.refreshAppearance();
+  }
+
+  // BODY-DERIVED GARMENT FIT. Each garment measures its anatomical source's
+  // transformed world geometry, converts the needed measurement/center into the
+  // garment parent's local space, applies a small garment ease + a DAMPENED user
+  // style adjustment, and updates. Ratio-based so it can't drift or compound.
+  // ANATOMY → CLOTHING, never the reverse. Runs after anatomy + pose are final.
+  private fitGarments() {
+    const profile = this.appearance.profile;
+    // Dampened fit: user control nudges fit around 1.0 instead of multiplying
+    // geometry. control 0.5 -> ~0.85x, 1.0 -> 1.0x, 3.5 -> ~1.75x.
+    const FIT_INFLUENCE = 0.3;
+    const fitAdjust = (control: number | undefined) => 1 + ((control ?? 1) - 1) * FIT_INFLUENCE;
+    const worldBox = (o: THREE.Object3D) => new THREE.Box3().setFromObject(o);
+
+    // SHORTS LEGS: a fabric shell around each anatomical upper thigh (reference).
+    const GARMENT_EASE = 1.45; // garment sits clearly outside the skin surface
+    (
+      [
+        ['shorts-leg-left', 'thigh-left'],
+        ['shorts-leg-right', 'thigh-right'],
+      ] as const
+    ).forEach(([legName, thighName]) => {
+      const leg = this.root.getObjectByName(legName) as THREE.Mesh | undefined;
+      const thigh = this.root.getObjectByName(thighName) as THREE.Mesh | undefined;
+      const shortsRootObj = this.root.getObjectByName('shorts-root');
+      if (!leg || !thigh || !shortsRootObj) return;
+      this.root.updateMatrixWorld(true);
+      const tb = new THREE.Box3().setFromObject(thigh);
+      const thighWorldW = tb.max.x - tb.min.x;
+      const thighWorldD = tb.max.z - tb.min.z;
+      const thighWorldCX = tb.getCenter(new THREE.Vector3()).x;
+      const thighWorldCZ = tb.getCenter(new THREE.Vector3()).z;
+      const fitX = fitAdjust(profile.shortLegWidth);
+      const fitZ = fitAdjust(profile.shortsDepth);
+      const legLen = profile.shortLegLength ?? 1;
+      // Measure the leg's BASE world size at neutral fit (1,1) so the ease ratio
+      // doesn't cancel the fit adjustment, then apply the fit on top.
+      leg.scale.set(1, legLen / Math.max(0.01, profile.shortsLength ?? 1), 1);
+      leg.updateMatrixWorld(true);
+      const lb = new THREE.Box3().setFromObject(leg);
+      const curW = Math.max(0.001, lb.max.x - lb.min.x);
+      const curD = Math.max(0.001, lb.max.z - lb.min.z);
+      leg.scale.x = (thighWorldW * GARMENT_EASE * fitX) / curW;
+      leg.scale.z = (thighWorldD * GARMENT_EASE * fitZ) / curD;
+      // Center the leg on the thigh's transformed world center (X and Z).
+      const local = shortsRootObj.worldToLocal(new THREE.Vector3(thighWorldCX, 0, thighWorldCZ));
+      leg.position.x = local.x;
+      leg.position.z = local.z;
+      // Anchor top near the hip line; capsule scales from center so shift down
+      // by half the added height as length grows (downward-only lengthening).
+      leg.position.y = -0.16 - 0.22 * (legLen - 1);
+    });
+
+    // SLEEVES: derive radial fit from the transformed upper arm; the sleeve is a
+    // child of the shoulder so shoulder/elbow motion carries it automatically.
+    (
+      [
+        ['sleeve-left', 'upper-arm-left'],
+        ['sleeve-right', 'upper-arm-right'],
+      ] as const
+    ).forEach(([sleeveName, armName]) => {
+      const sleeve = this.root.getObjectByName(sleeveName) as THREE.Mesh | undefined;
+      const arm = this.root.getObjectByName(armName) as THREE.Mesh | undefined;
+      if (!sleeve || !arm || !sleeve.parent) return;
+      this.root.updateMatrixWorld(true);
+      const ab = worldBox(arm);
+      const armW = Math.max(0.001, ab.max.x - ab.min.x);
+      const armD = Math.max(0.001, ab.max.z - ab.min.z);
+      const parentScale = sleeve.parent.getWorldScale(new THREE.Vector3());
+      const baseR = 0.1; // sleeve capsule base radius
+      const ease = 1.25;
+      const fit = fitAdjust(this.appearance.outfit?.sleeveWidth);
+      const len = this.appearance.outfit?.sleeveLength ?? 1;
+      sleeve.scale.x = (armW * ease * fit) / 2 / (baseR * Math.max(0.01, parentScale.x));
+      sleeve.scale.z = (armD * ease * fit) / 2 / (baseR * Math.max(0.01, parentScale.z));
+      sleeve.scale.y = len; // Sleeve Length stays a simple style adjustment
+    });
+
+    // SOCKS: derive radial fit from the transformed calf/lower leg. Sock is a
+    // child of the knee joint, so knee/ankle motion carries it automatically.
+    (
+      [
+        ['sock-left', 'calf-left'],
+        ['sock-right', 'calf-right'],
+      ] as const
+    ).forEach(([sockName, calfName]) => {
+      const sock = this.root.getObjectByName(sockName) as THREE.Mesh | undefined;
+      const calf = this.root.getObjectByName(calfName) as THREE.Mesh | undefined;
+      if (!sock || !calf || !sock.parent) return;
+      this.root.updateMatrixWorld(true);
+      const cb = worldBox(calf);
+      const calfW = Math.max(0.001, cb.max.x - cb.min.x);
+      const calfD = Math.max(0.001, cb.max.z - cb.min.z);
+      const parentScale = sock.parent.getWorldScale(new THREE.Vector3());
+      const baseR = 0.08; // sock cylinder base radius
+      const ease = 1.1;
+      const fit = fitAdjust(profile.sockThickness);
+      sock.scale.x = (calfW * ease * fit) / 2 / (baseR * Math.max(0.01, parentScale.x));
+      sock.scale.z = (calfD * ease * fit) / 2 / (baseR * Math.max(0.01, parentScale.z));
+    });
+
+    // BELT: derive base size/position from the anatomical waist boundary (bottom
+    // of lower-torso-part). The buckle is a child of belt-root so it follows.
+    const lowerTorso = this.root.getObjectByName('lower-torso-part') as THREE.Mesh | undefined;
+    const beltRoot = this.root.getObjectByName('belt-root') as THREE.Group | undefined;
+    if (lowerTorso && beltRoot && beltRoot.parent) {
+      this.root.updateMatrixWorld(true);
+      const wb = worldBox(lowerTorso);
+      const waistW = Math.max(0.001, wb.max.x - wb.min.x);
+      const waistBottomY = wb.min.y;
+      const fitW = fitAdjust(this.appearance.outfit?.beltWidth);
+      const pScale = beltRoot.parent.getWorldScale(new THREE.Vector3());
+      const baseR = 0.24; // belt ring geometry base radius
+      const ease = 1.15;
+      const targetW = (waistW * ease * fitW) / 2;
+      beltRoot.scale.x = targetW / (baseR * Math.max(0.01, pScale.x));
+      // Seat the belt so its top overlaps the jersey/waist bottom edge with a
+      // small stable seam (closes the visible jersey→belt gap). The ring's
+      // half-height is the tube radius (0.028*beltT); raising the center by one
+      // tube radius puts the ring's top at/above the waist-bottom landmark so
+      // the jersey bottom tucks into the belt rather than floating above it.
+      const beltT = this.appearance.outfit?.beltThickness ?? 1;
+      const overlap = 0.028 * beltT; // one ring tube radius of overlap
+      const localC = beltRoot.parent.worldToLocal(new THREE.Vector3(0, waistBottomY + overlap, 0));
+      const beltV = this.appearance.outfit?.beltVertical ?? 0;
+      beltRoot.position.y = localC.y + beltV;
+    }
   }
 
   private refreshAppearance() {

@@ -63,12 +63,12 @@ describe('disc grip + held disc', () => {
     g.dispose();
   });
 
-  it('held disc defaults to the right grip and transfers to the left', () => {
+  it('held disc defaults to the left grip and transfers to the right', () => {
     const g = makeGolfer();
     const disc = g.root.getObjectByName('held-disc')!;
-    expect(disc.parent?.name).toBe('rightDiscGrip');
-    g.setDiscHand('left');
     expect(disc.parent?.name).toBe('leftDiscGrip');
+    g.setDiscHand('right');
+    expect(disc.parent?.name).toBe('rightDiscGrip');
     g.dispose();
   });
 
@@ -80,7 +80,7 @@ describe('disc grip + held disc', () => {
     const disc = g.root.getObjectByName('held-disc')!;
     const before = disc.getWorldPosition(new THREE.Vector3()).clone();
     const target = new GolferPoseTarget(g);
-    const pose: GolferPose = { id: 't', name: 't', rightShoulder: { abduction: 1.0 } };
+    const pose: GolferPose = { id: 't', name: 't', leftShoulder: { abduction: 1.0 } };
     target.applyPose(pose);
     g.root.updateMatrixWorld(true);
     const after = disc.getWorldPosition(new THREE.Vector3());
