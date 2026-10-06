@@ -1,11 +1,11 @@
 import { vi } from 'vitest';
 
-export enum RigidBodyType {
-  Dynamic = 0,
-  Fixed = 1,
-  KinematicPositionBased = 2,
-  KinematicVelocityBased = 3,
-}
+export const RigidBodyType = {
+  Dynamic: 0,
+  Fixed: 1,
+  KinematicPositionBased: 2,
+  KinematicVelocityBased: 3,
+} as const;
 
 const bodies = new Map();
 let bodyIdCounter = 0;

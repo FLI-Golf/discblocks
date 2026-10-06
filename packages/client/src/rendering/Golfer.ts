@@ -1,0 +1,5014 @@
+import * as THREE from 'three';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
+import type { GolferLook } from '@/game/players';
+
+type Euler3 = [number, number, number];
+
+type JointName =
+  | 'hips'
+  | 'torso'
+  | 'head'
+  | 'shoulderR'
+  | 'elbowR'
+  | 'shoulderL'
+  | 'elbowL'
+  | 'hipR'
+  | 'kneeR'
+  | 'hipL'
+  | 'kneeL';
+
+export type HairStyle =
+  | 'shortCrop'
+  | 'sidePart'
+  | 'undercut'
+  | 'buzzCut'
+  | 'ponytail'
+  | 'bun'
+  | 'bald'
+  | 'short'
+  | 'cap'
+  | 'visor';
+export type BodyProfileId = 'athleticMale' | 'athleticFemale' | 'neutralLean';
+export type AccessorySlot = 'cap' | 'visor' | 'glasses' | 'disc' | 'bag';
+
+export function printSceneGraph(root: THREE.Object3D, label: string) {
+  const rows: Array<{
+    name: string;
+    type: string;
+    visible: boolean;
+    childCount: number;
+    position: [number, number, number];
+    rotation: [number, number, number];
+    scale: [number, number, number];
+  }> = [];
+  const seen = new Set<THREE.Object3D>();
+
+  const visit = (node: THREE.Object3D) => {
+    if (seen.has(node)) {
+      return;
+    }
+    seen.add(node);
+
+    const name = node.name || node.type;
+    const isRelevant = /(head|face|hair|jaw|eye|nose|mouth|brow|sidepart|cap)/i.test(name);
+    if (isRelevant || node === root) {
+      const position = (node.position.toArray().slice(0, 3) as number[]).map((value) =>
+        Number(value.toFixed(4))
+      ) as [number, number, number];
+      const rotation = (node.rotation.toArray().slice(0, 3) as number[]).map((value) =>
+        Number(value.toFixed(4))
+      ) as [number, number, number];
+      const scale = (node.scale.toArray().slice(0, 3) as number[]).map((value) =>
+        Number(value.toFixed(4))
+      ) as [number, number, number];
+
+      rows.push({
+        name,
+        type: node.type,
+        visible: node.visible,
+        childCount: node.children.length,
+        position,
+        rotation,
+        scale,
+      });
+    }
+
+    node.children.forEach(visit);
+  };
+
+  visit(root);
+
+  if (rows.length === 0) {
+    console.warn(label, {
+      rootName: root.name || root.type,
+      type: root.type,
+      visible: root.visible,
+      childCount: root.children.length,
+    });
+    return;
+  }
+
+  console.groupCollapsed(label);
+  console.table(rows);
+  console.groupEnd();
+}
+
+export interface BodyProfile {
+  id: BodyProfileId;
+  shoulderWidth: number;
+  torsoLength: number;
+  torsoTaper: number;
+  hipWidth: number;
+  // Anatomical pelvis front/back depth (baseline). 1.0 = default. Added for
+  // the WAIST→PELVIS factory; old saved profiles omit it and behave as 1.0.
+  hipDepth: number;
+  armThickness: number;
+  armRaise: number;
+  armLength: number;
+  legLength: number;
+  thighLength: number;
+  legTaper: number;
+  // Thigh radial thickness (X/Z), independent of calf thickness. Default 1.0;
+  // old saved profiles omit it and behave as 1.0.
+  thighThickness: number;
+  headScale: number;
+  jawWidth: number;
+  chinShape: number;
+  neckWidth: number;
+  neckLength: number;
+  // Torso shape (baseline). Chest width (X), chest depth (Z, side view),
+  // waist size (hem X/Z), waist thickness (hem Y).
+  chestWidth: number;
+  chestDepth: number;
+  waistSize: number;
+  waistThickness: number;
+  // Lower torso (jersey bottom, tucked into the belt/shorts). Width (X) and
+  // depth (Z) of that region.
+  lowerTorsoWidth: number;
+  lowerTorsoDepth: number;
+  // Head vertical placement (baseline). 1 = default (y 0.78); moves head
+  // up/down relative to the torso for neck/torso fit.
+  headVertical: number;
+  // Neck placement (baseline). Vertical/forward offset of the neck cylinder.
+  neckVertical: number;
+  neckForward: number;
+  // Trapezius (neck→shoulder) transition dome (baseline). Visible geometry.
+  trapeziusWidth: number;
+  trapeziusHeight: number;
+  // Front/back thickness of the trapezius dome.
+  trapeziusDepth: number;
+  // Vertical placement of the trapezius dome (multiplier on baseline y 0.66).
+  trapeziusVertical: number;
+  // Shoulder placement (baseline). How far the shoulder pivot sits from the
+  // torso centerline (1 = default ±0.32; smaller = closer to the torso).
+  shoulderInOut: number;
+  // Shoulder vertical placement (baseline). 1 = default height (y 0.6);
+  // smaller = shoulders sit lower, larger = higher.
+  shoulderVertical: number;
+  // Hand (baseline). Stylized hand: palm + grouped fingers + thumb.
+  handSize: number;
+  palmWidth: number;
+  palmLength: number;
+  palmDepth: number;
+  // Shorts garment (baseline clothing). NOT the anatomical pelvis.
+  shortsWidth: number;
+  shortsLength: number;
+  // Vertical offset of the WHOLE garment up/down the torso (0 = baseline).
+  shortsRise: number;
+  // How far the shorts sit forward (Z) toward the front of the body.
+  shortsForward: number;
+  // Whole-garment front-to-back depth (Z).
+  shortsDepth: number;
+  // Radial width of each leg tube (X/Z). Waist width is shortsWidth's job.
+  shortLegWidth: number;
+  shortLegLength: number;
+  // Feet (baseline).
+  footLength: number;
+  footWidth: number;
+  footHeight: number;
+  // Socks (baseline clothing). Radial thickness.
+  sockThickness: number;
+}
+
+export type FacePresetId = 'male' | 'female' | 'neutral';
+export type AvatarModelId = 'male' | 'female' | 'none';
+
+export const AVATAR_MODEL_URLS: Record<'male' | 'female', string> = {
+  male: '/models/male_avatar.glb',
+  female: '/models/female_avatar.glb',
+};
+
+export type FaceParameterKey =
+  | 'headScale'
+  | 'jawWidth'
+  | 'chinShape'
+  | 'brow'
+  | 'nose'
+  | 'eyeSpacing'
+  | 'eyeSize'
+  | 'mouth'
+  | 'beard'
+  | 'stubble';
+
+export type FaceAdvancedKey =
+  | 'headWidth'
+  | 'headHeight'
+  | 'headDepth'
+  | 'headPositionY'
+  | 'headPositionZ'
+  | 'cheekSize'
+  | 'cheekWidth'
+  | 'cheekHeight'
+  | 'cheekDepth'
+  | 'cheekSpacing'
+  | 'cheekPositionY'
+  | 'cheekPositionZ'
+  | 'jawHeight'
+  | 'jawDepth'
+  | 'jawPositionY'
+  | 'jawPositionZ'
+  | 'chinSize'
+  | 'chinWidth'
+  | 'chinHeight'
+  | 'chinDepth'
+  | 'chinPositionY'
+  | 'chinPositionZ'
+  | 'eyeWidth'
+  | 'eyeHeight'
+  | 'eyeDepth'
+  | 'eyePositionY'
+  | 'eyePositionZ'
+  | 'noseWidth'
+  | 'noseHeight'
+  | 'noseDepth'
+  | 'nosePositionY'
+  | 'nosePositionZ'
+  | 'mouthWidth'
+  | 'mouthHeight'
+  | 'mouthDepth'
+  | 'mouthPositionY'
+  | 'mouthPositionZ'
+  | 'mouthFullness'
+  | 'mouthCornerAngle'
+  | 'mouthOpening'
+  | 'browWidth'
+  | 'browThickness'
+  | 'browSpacing'
+  | 'browPositionY'
+  | 'browAngle'
+  | 'browArch'
+  | 'browInnerHeight'
+  | 'browOuterHeight'
+  | 'browInnerForward'
+  | 'browOuterForward'
+  | 'hairScale'
+  | 'hairWidth'
+  | 'hairHeight'
+  | 'hairDepth'
+  | 'hairPositionY'
+  | 'hairPositionZ'
+  | 'hairCrownWidth'
+  | 'hairCrownHeight'
+  | 'hairCrownDepth'
+  | 'hairCrownGrowIn'
+  | 'hairBackWidth'
+  | 'hairBackHeight'
+  | 'hairBackDepth'
+  | 'hairBackGrowIn'
+  | 'hairSideWidth'
+  | 'hairSideHeight'
+  | 'hairSideDepth'
+  | 'sideburnLength'
+  | 'sideburnWidth'
+  | 'earSize'
+  | 'earProminence'
+  | 'earSpacing'
+  | 'earVertical'
+  | 'backHairLength';
+
+export const FACE_PARAMETER_LIMITS: Record<
+  FaceParameterKey,
+  { min: number; max: number; default: number; step: number }
+> = {
+  // Authoring ranges expanded for character creation. DEFAULTS are unchanged —
+  // only the min/max envelope widened. Saved values load identically (clamps
+  // only relax; they never remap). Scale-like controls get a broad envelope.
+  headScale: { min: 0.5, max: 1.8, default: 1.0, step: 0.01 },
+  jawWidth: { min: 0.25, max: 2.0, default: 0.99, step: 0.01 },
+  chinShape: { min: 0.25, max: 2.0, default: 0.96, step: 0.01 },
+  brow: { min: 0.0, max: 2.0, default: 0.72, step: 0.01 },
+  nose: { min: 0.0, max: 2.0, default: 0.32, step: 0.01 },
+  eyeSpacing: { min: 0.2, max: 1.8, default: 0.7, step: 0.01 },
+  eyeSize: { min: 0.25, max: 2.0, default: 1.0, step: 0.01 },
+  mouth: { min: 0.1, max: 2.0, default: 0.42, step: 0.01 },
+  beard: { min: 0.0, max: 1.5, default: 0.0, step: 0.01 },
+  stubble: { min: 0.0, max: 1.5, default: 0.0, step: 0.01 },
+};
+
+export const FACE_ADVANCED_DEFAULTS: Record<FaceAdvancedKey, number> = {
+  headWidth: 1,
+  headHeight: 1,
+  headDepth: 1,
+  headPositionY: 0,
+  headPositionZ: 0,
+  cheekSize: 1,
+  cheekWidth: 1,
+  cheekHeight: 1,
+  cheekDepth: 1,
+  cheekSpacing: 1,
+  cheekPositionY: 0,
+  cheekPositionZ: 0,
+  jawHeight: 1,
+  jawDepth: 1,
+  jawPositionY: 0,
+  jawPositionZ: 0,
+  chinSize: 1,
+  chinWidth: 1,
+  chinHeight: 1,
+  chinDepth: 1,
+  chinPositionY: 0,
+  chinPositionZ: 0,
+  eyeWidth: 1,
+  eyeHeight: 1,
+  eyeDepth: 1,
+  eyePositionY: 0,
+  eyePositionZ: 0,
+  noseWidth: 1,
+  noseHeight: 1,
+  noseDepth: 1,
+  nosePositionY: 0,
+  nosePositionZ: 0,
+  mouthWidth: 1,
+  mouthHeight: 1,
+  mouthDepth: 1,
+  mouthPositionY: 0,
+  mouthPositionZ: 0,
+  mouthFullness: 1,
+  mouthCornerAngle: 0,
+  mouthOpening: 0,
+  browWidth: 1,
+  browThickness: 1,
+  browSpacing: 1,
+  browPositionY: 0,
+  browAngle: 0,
+  browArch: 0,
+  browInnerHeight: 0,
+  browOuterHeight: 0,
+  browInnerForward: 0,
+  browOuterForward: 0,
+  hairScale: 1,
+  hairWidth: 1,
+  hairHeight: 1,
+  hairDepth: 1,
+  hairPositionY: 0,
+  hairPositionZ: 0,
+  hairCrownWidth: 1,
+  hairCrownHeight: 1,
+  hairCrownDepth: 1,
+  hairCrownGrowIn: 1,
+  hairBackWidth: 1,
+  hairBackHeight: 1,
+  hairBackDepth: 1,
+  hairBackGrowIn: 1,
+  hairSideWidth: 1,
+  hairSideHeight: 1,
+  hairSideDepth: 1,
+  sideburnLength: 1,
+  sideburnWidth: 1,
+  earSize: 1,
+  earProminence: 1,
+  earSpacing: 1,
+  earVertical: 0,
+  backHairLength: 1,
+};
+
+// Advanced per-feature clamps (the geometry safety authority). Widened so the
+// authoring sliders' full range produces geometry instead of clamping flat.
+// Scale-like -> 0.25–2.0; positional -> ±0.3; spacing -> 0.3–2.0; angle -> ±45.
+const FACE_ADVANCED_LIMITS: Record<FaceAdvancedKey, { min: number; max: number }> = {
+  headWidth: { min: 0.25, max: 2.0 },
+  headHeight: { min: 0.25, max: 2.0 },
+  headDepth: { min: 0.25, max: 2.0 },
+  headPositionY: { min: -0.3, max: 0.3 },
+  headPositionZ: { min: -0.3, max: 0.3 },
+  cheekSize: { min: 0.25, max: 2.0 },
+  cheekWidth: { min: 0.25, max: 2.0 },
+  cheekHeight: { min: 0.25, max: 2.0 },
+  cheekDepth: { min: 0.25, max: 2.0 },
+  cheekSpacing: { min: 0.3, max: 2.0 },
+  cheekPositionY: { min: -0.3, max: 0.3 },
+  cheekPositionZ: { min: -0.3, max: 0.3 },
+  jawHeight: { min: 0.25, max: 2.0 },
+  jawDepth: { min: 0.25, max: 2.0 },
+  jawPositionY: { min: -0.3, max: 0.3 },
+  jawPositionZ: { min: -0.3, max: 0.3 },
+  chinSize: { min: 0.25, max: 2.0 },
+  chinWidth: { min: 0.25, max: 2.0 },
+  chinHeight: { min: 0.25, max: 2.0 },
+  chinDepth: { min: 0.25, max: 2.0 },
+  chinPositionY: { min: -0.3, max: 0.3 },
+  chinPositionZ: { min: -0.3, max: 0.3 },
+  eyeWidth: { min: 0.25, max: 2.0 },
+  eyeHeight: { min: 0.25, max: 2.0 },
+  eyeDepth: { min: 0.25, max: 2.0 },
+  eyePositionY: { min: -0.3, max: 0.3 },
+  eyePositionZ: { min: -0.3, max: 0.3 },
+  noseWidth: { min: 0.25, max: 2.0 },
+  noseHeight: { min: 0.25, max: 2.0 },
+  noseDepth: { min: 0.25, max: 2.0 },
+  nosePositionY: { min: -0.3, max: 0.3 },
+  nosePositionZ: { min: -0.3, max: 0.3 },
+  mouthWidth: { min: 0.25, max: 2.0 },
+  mouthHeight: { min: 0.25, max: 2.0 },
+  mouthDepth: { min: 0.25, max: 2.0 },
+  mouthPositionY: { min: -0.3, max: 0.3 },
+  mouthPositionZ: { min: -0.3, max: 0.3 },
+  mouthFullness: { min: 0.25, max: 2.5 },
+  mouthCornerAngle: { min: -30, max: 30 },
+  mouthOpening: { min: 0, max: 1 },
+  browWidth: { min: 0.25, max: 2.0 },
+  browThickness: { min: 0.25, max: 2.0 },
+  browSpacing: { min: 0.3, max: 2.0 },
+  browPositionY: { min: -0.3, max: 0.3 },
+  browAngle: { min: -45, max: 45 },
+  browArch: { min: -1, max: 1 },
+  browInnerHeight: { min: -0.3, max: 0.3 },
+  browOuterHeight: { min: -0.3, max: 0.3 },
+  browInnerForward: { min: -0.2, max: 0.2 },
+  browOuterForward: { min: -0.2, max: 0.2 },
+  hairScale: { min: 0.25, max: 2.0 },
+  hairWidth: { min: 0.25, max: 2.0 },
+  hairHeight: { min: 0.25, max: 2.0 },
+  hairDepth: { min: 0.25, max: 2.0 },
+  hairPositionY: { min: -0.3, max: 0.3 },
+  hairPositionZ: { min: -0.3, max: 0.3 },
+  hairCrownWidth: { min: 0.25, max: 2.0 },
+  hairCrownHeight: { min: 0.25, max: 2.0 },
+  hairCrownDepth: { min: 0.25, max: 2.0 },
+  hairCrownGrowIn: { min: 0.5, max: 2.0 },
+  hairBackWidth: { min: 0.25, max: 2.0 },
+  hairBackHeight: { min: 0.25, max: 2.0 },
+  hairBackDepth: { min: 0.25, max: 2.0 },
+  hairBackGrowIn: { min: 0.5, max: 2.0 },
+  hairSideWidth: { min: 0.25, max: 2.0 },
+  hairSideHeight: { min: 0.25, max: 2.0 },
+  hairSideDepth: { min: 0.25, max: 2.0 },
+  sideburnLength: { min: 0, max: 2.5 },
+  sideburnWidth: { min: 0, max: 2.5 },
+  earSize: { min: 0.25, max: 2.5 },
+  earProminence: { min: 0, max: 2.5 },
+  earSpacing: { min: 0.4, max: 2.0 },
+  earVertical: { min: -0.3, max: 0.3 },
+  backHairLength: { min: 0, max: 2.5 },
+};
+
+export function clampFaceParameterValue(key: FaceParameterKey, value: number): number {
+  const limit = FACE_PARAMETER_LIMITS[key];
+  return THREE.MathUtils.clamp(value, limit.min, limit.max);
+}
+
+export function clampFaceAdvancedValue(key: FaceAdvancedKey, value: number): number {
+  const limit = FACE_ADVANCED_LIMITS[key];
+  return THREE.MathUtils.clamp(value, limit.min, limit.max);
+}
+
+export function mapFaceParameterToGeometry(key: FaceParameterKey, value: number): number {
+  const clamped = clampFaceParameterValue(key, value);
+  switch (key) {
+    case 'jawWidth':
+      return clamped / FACE_PARAMETER_LIMITS.jawWidth.default;
+    case 'headScale':
+      return clamped / FACE_PARAMETER_LIMITS.headScale.default;
+    case 'chinShape':
+      return clamped / FACE_PARAMETER_LIMITS.chinShape.default;
+    default:
+      return clamped;
+  }
+}
+
+export interface FaceConfig {
+  preset: FacePresetId;
+  skinTone: number;
+  hairColor: number;
+  hairStyle: HairStyle;
+  headScale: number;
+  jawWidth: number;
+  chinShape: number;
+  brow: number;
+  nose: number;
+  eyeSpacing: number;
+  eyeSize: number;
+  mouth: number;
+  beard: number;
+  stubble: number;
+  headWidth: number;
+  headHeight: number;
+  headDepth: number;
+  headPositionY: number;
+  headPositionZ: number;
+  cheekSize: number;
+  cheekWidth: number;
+  cheekHeight: number;
+  cheekDepth: number;
+  cheekSpacing: number;
+  cheekPositionY: number;
+  cheekPositionZ: number;
+  jawHeight: number;
+  jawDepth: number;
+  jawPositionY: number;
+  jawPositionZ: number;
+  chinSize: number;
+  chinWidth: number;
+  chinHeight: number;
+  chinDepth: number;
+  chinPositionY: number;
+  chinPositionZ: number;
+  eyeWidth: number;
+  eyeHeight: number;
+  eyeDepth: number;
+  eyePositionY: number;
+  eyePositionZ: number;
+  noseWidth: number;
+  noseHeight: number;
+  noseDepth: number;
+  nosePositionY: number;
+  nosePositionZ: number;
+  mouthWidth: number;
+  mouthHeight: number;
+  mouthDepth: number;
+  mouthPositionY: number;
+  mouthPositionZ: number;
+  mouthFullness: number;
+  mouthCornerAngle: number;
+  mouthOpening: number;
+  browWidth: number;
+  browThickness: number;
+  browSpacing: number;
+  browPositionY: number;
+  browAngle: number;
+  browArch: number;
+  browInnerHeight: number;
+  browOuterHeight: number;
+  browInnerForward: number;
+  browOuterForward: number;
+  hairScale: number;
+  hairWidth: number;
+  hairHeight: number;
+  hairDepth: number;
+  hairPositionY: number;
+  hairPositionZ: number;
+  hairCrownWidth: number;
+  hairCrownHeight: number;
+  hairCrownDepth: number;
+  hairCrownGrowIn: number;
+  hairBackWidth: number;
+  hairBackHeight: number;
+  hairBackDepth: number;
+  hairBackGrowIn: number;
+  hairSideWidth: number;
+  hairSideHeight: number;
+  hairSideDepth: number;
+  sideburnLength: number;
+  sideburnWidth: number;
+  earSize: number;
+  earProminence: number;
+  earSpacing: number;
+  earVertical: number;
+  backHairLength: number;
+}
+
+export interface CharacterAppearance {
+  avatarModelId: AvatarModelId;
+  bodyProfile: BodyProfileId;
+  profile: BodyProfile;
+  skinTone: number;
+  hairStyle: HairStyle;
+  hairColor: number;
+  shirtColor: number;
+  shortsColor: number;
+  shoeColor: number;
+  accentColor: number;
+  /** Optional belt color override; defaults to shortsColor (secondary slot). */
+  beltColor?: number;
+  /** Optional buckle color override; defaults to a metallic silver. */
+  buckleColor?: number;
+  jerseyNumber: number;
+  brow: number;
+  nose: number;
+  eyeSpacing: number;
+  mouth: number;
+  beard: number;
+  stubble: number;
+  sleeveLength: number;
+  collarHeight: number;
+  shirtFit: number;
+  shortsLength: number;
+  pantsFit: number;
+  facePreset?: FacePresetId;
+  outfit: {
+    sleeveLength: number;
+    sleeveWidth: number;
+    collarHeight: number;
+    shirtFit: number;
+    shortsLength: number;
+    pantsFit: number;
+    beltThickness: number;
+    beltWidth: number;
+    beltVertical: number;
+    beltBuckle: number;
+    /** How snug the belt ring is to the body (smaller = tighter). */
+    beltTightness: number;
+  };
+  face: {
+    brow: number;
+    nose: number;
+    eyeSpacing: number;
+    eyeSize: number;
+    mouth: number;
+    beard: number;
+    stubble: number;
+    headWidth: number;
+    headHeight: number;
+    headDepth: number;
+    headPositionY: number;
+    headPositionZ: number;
+    cheekSize: number;
+    cheekWidth: number;
+    cheekHeight: number;
+    cheekDepth: number;
+    cheekSpacing: number;
+    cheekPositionY: number;
+    cheekPositionZ: number;
+    jawHeight: number;
+    jawDepth: number;
+    jawPositionY: number;
+    jawPositionZ: number;
+    chinSize: number;
+    chinWidth: number;
+    chinHeight: number;
+    chinDepth: number;
+    chinPositionY: number;
+    chinPositionZ: number;
+    eyeWidth: number;
+    eyeHeight: number;
+    eyeDepth: number;
+    eyePositionY: number;
+    eyePositionZ: number;
+    noseWidth: number;
+    noseHeight: number;
+    noseDepth: number;
+    nosePositionY: number;
+    nosePositionZ: number;
+    mouthWidth: number;
+    mouthHeight: number;
+    mouthDepth: number;
+    mouthPositionY: number;
+    mouthPositionZ: number;
+    mouthFullness: number;
+    mouthCornerAngle: number;
+    mouthOpening: number;
+    browWidth: number;
+    browThickness: number;
+    browSpacing: number;
+    browPositionY: number;
+    browAngle: number;
+    browArch: number;
+    browInnerHeight: number;
+    browOuterHeight: number;
+    browInnerForward: number;
+    browOuterForward: number;
+    hairScale: number;
+    hairWidth: number;
+    hairHeight: number;
+    hairDepth: number;
+    hairPositionY: number;
+    hairPositionZ: number;
+    hairCrownWidth: number;
+    hairCrownHeight: number;
+    hairCrownDepth: number;
+    hairCrownGrowIn: number;
+    hairBackWidth: number;
+    hairBackHeight: number;
+    hairBackDepth: number;
+    hairBackGrowIn: number;
+    hairSideWidth: number;
+    hairSideHeight: number;
+    hairSideDepth: number;
+    sideburnLength: number;
+    sideburnWidth: number;
+    earSize: number;
+    earProminence: number;
+    earSpacing: number;
+    earVertical: number;
+    backHairLength: number;
+  };
+}
+
+export type GolferAppearance = CharacterAppearance & {
+  accentColor?: number;
+  bodyProfile?: BodyProfileId;
+  profile?: BodyProfile;
+};
+
+export type PartialGolferAppearance = Omit<
+  Partial<GolferAppearance>,
+  'profile' | 'face' | 'outfit'
+> & {
+  profile?: Partial<BodyProfile>;
+  face?: Partial<CharacterAppearance['face']>;
+  outfit?: Partial<CharacterAppearance['outfit']>;
+};
+
+export interface AccessoryConfig {
+  color?: number;
+  accent?: number;
+  scale?: number;
+  visible?: boolean;
+}
+
+interface Pose {
+  /** Body rotation about Y, relative to the throw direction. */
+  rootYaw: number;
+  /** Crouch offset, in metres. */
+  rootLift: number;
+  joints: Partial<Record<JointName, Euler3>>;
+}
+
+const JERSEY = 0x111827;
+const SHORTS = 0x1a1a1e;
+const SHOE = 0x111114;
+
+const DEFAULT_LOOK: GolferLook = {
+  jersey: 0xf2f4f8,
+  accent: 0xe02b20,
+  shorts: 0x1a1a1e,
+  skin: 0xf0c8a0,
+  hair: 0x3b241b,
+  hairStyle: 'buzzCut',
+  build: 1.04,
+};
+
+// Neutral standing/calibration pose for the BODY preview. Arms hang nearly
+// straight down from the shoulders with a slight outward angle and a slight
+// elbow bend, mirrored left/right. Gameplay throw poses are separate.
+const STAND_POSE: Pose = {
+  rootYaw: 0,
+  rootLift: 0,
+  joints: {
+    hips: [0, 0, 0],
+    torso: [0.08, 0, 0],
+    head: [0, -0.12, 0],
+    shoulderR: [0.02, 0, -0.34],
+    elbowR: [0.01, 0, -0.12],
+    shoulderL: [0.02, 0, 0.34],
+    elbowL: [0.01, 0, 0.12],
+    hipR: [0.06, 0, 0.08],
+    kneeR: [0.12, 0, 0],
+    hipL: [0.04, 0, -0.08],
+    kneeL: [0.12, 0, 0],
+  },
+};
+
+export const BODY_PROFILES: Record<BodyProfileId, BodyProfile> = {
+  athleticMale: {
+    id: 'athleticMale',
+    shoulderWidth: 1.18,
+    torsoLength: 1.22,
+    torsoTaper: 1.12,
+    hipWidth: 0.82,
+    hipDepth: 1.0,
+    armThickness: 1.18,
+    armRaise: 0,
+    armLength: 1,
+    thighLength: 1,
+    legLength: 1.08,
+    legTaper: 1.14,
+    thighThickness: 1.0,
+    headScale: 1.08,
+    jawWidth: 1.12,
+    chinShape: 1.06,
+    neckWidth: 1.0,
+    neckLength: 1.0,
+    chestWidth: 1.0,
+    chestDepth: 1.0,
+    waistSize: 1.0,
+    waistThickness: 1.0,
+    lowerTorsoWidth: 1.0,
+    lowerTorsoDepth: 1.0,
+    headVertical: 1.0,
+    neckVertical: 1.0,
+    neckForward: 0,
+    trapeziusWidth: 1.0,
+    trapeziusHeight: 1.0,
+    trapeziusDepth: 1.0,
+    trapeziusVertical: 1.0,
+    shoulderInOut: 1.0,
+    shoulderVertical: 1.0,
+    handSize: 1.0,
+    palmWidth: 1.0,
+    palmLength: 1.0,
+    palmDepth: 1.0,
+    shortsWidth: 1.0,
+    shortsLength: 1.0,
+    shortsRise: 0.0,
+    shortsForward: 0.0,
+    shortsDepth: 1.0,
+    shortLegWidth: 1.0,
+    shortLegLength: 1.0,
+    footLength: 1.0,
+    footWidth: 1.0,
+    footHeight: 1.0,
+    sockThickness: 1.0,
+  },
+  athleticFemale: {
+    id: 'athleticFemale',
+    shoulderWidth: 0.92,
+    torsoLength: 0.96,
+    torsoTaper: 0.74,
+    hipWidth: 1.24,
+    hipDepth: 1.0,
+    armThickness: 0.9,
+    armRaise: 0,
+    armLength: 1,
+    thighLength: 1,
+    legLength: 0.98,
+    legTaper: 0.9,
+    thighThickness: 1.0,
+    headScale: 0.96,
+    jawWidth: 0.78,
+    chinShape: 0.7,
+    neckWidth: 0.9,
+    neckLength: 0.92,
+    chestWidth: 0.92,
+    chestDepth: 0.9,
+    waistSize: 0.9,
+    waistThickness: 0.9,
+    lowerTorsoWidth: 0.92,
+    lowerTorsoDepth: 0.9,
+    headVertical: 1.0,
+    neckVertical: 1.0,
+    neckForward: 0,
+    trapeziusWidth: 0.9,
+    trapeziusHeight: 0.92,
+    trapeziusDepth: 1.0,
+    trapeziusVertical: 1.0,
+    shoulderInOut: 1.0,
+    shoulderVertical: 1.0,
+    handSize: 0.92,
+    palmWidth: 0.92,
+    palmLength: 0.92,
+    palmDepth: 0.92,
+    shortsWidth: 1.0,
+    shortsLength: 1.0,
+    shortsRise: 0.0,
+    shortsForward: 0.0,
+    shortsDepth: 1.0,
+    shortLegWidth: 1.0,
+    shortLegLength: 1.0,
+    footLength: 0.96,
+    footWidth: 0.96,
+    footHeight: 0.96,
+    sockThickness: 1.0,
+  },
+  neutralLean: {
+    id: 'neutralLean',
+    shoulderWidth: 0.86,
+    torsoLength: 0.82,
+    torsoTaper: 0.68,
+    hipWidth: 0.8,
+    hipDepth: 1.0,
+    armThickness: 0.82,
+    armRaise: 0,
+    armLength: 1,
+    thighLength: 1,
+    legLength: 0.86,
+    legTaper: 0.78,
+    thighThickness: 1.0,
+    headScale: 0.88,
+    jawWidth: 0.9,
+    chinShape: 0.84,
+    neckWidth: 0.88,
+    neckLength: 0.96,
+    chestWidth: 1.0,
+    chestDepth: 1.0,
+    waistSize: 1.0,
+    waistThickness: 1.0,
+    lowerTorsoWidth: 1.0,
+    lowerTorsoDepth: 1.0,
+    headVertical: 1.0,
+    neckVertical: 1.0,
+    neckForward: 0,
+    trapeziusWidth: 1.0,
+    trapeziusHeight: 1.0,
+    trapeziusDepth: 1.0,
+    trapeziusVertical: 1.0,
+    shoulderInOut: 1.0,
+    shoulderVertical: 1.0,
+    handSize: 0.94,
+    palmWidth: 0.94,
+    palmLength: 0.94,
+    palmDepth: 0.94,
+    shortsWidth: 1.0,
+    shortsLength: 1.0,
+    shortsRise: 0.0,
+    shortsForward: 0.0,
+    shortsDepth: 1.0,
+    shortLegWidth: 1.0,
+    shortLegLength: 1.0,
+    footLength: 1.0,
+    footWidth: 1.0,
+    footHeight: 1.0,
+    sockThickness: 1.0,
+  },
+};
+
+export function buildCharacterAppearance(
+  overrides: PartialGolferAppearance = {}
+): CharacterAppearance {
+  const baseProfile = overrides.bodyProfile ?? 'neutralLean';
+  const baseProfileData = BODY_PROFILES[baseProfile] ?? BODY_PROFILES.neutralLean;
+  const profile = {
+    ...baseProfileData,
+    ...overrides.profile,
+    id: overrides.profile?.id ?? baseProfileData.id ?? baseProfile,
+  };
+  const presetId = overrides.facePreset ?? (baseProfile === 'athleticFemale' ? 'female' : 'male');
+  const facePreset = FACE_PRESETS[presetId] ?? FACE_PRESETS.male;
+
+  const normalizedHairStyle =
+    overrides.hairStyle === 'short' ||
+    overrides.hairStyle === 'cap' ||
+    overrides.hairStyle === 'visor'
+      ? 'shortCrop'
+      : (overrides.hairStyle ?? facePreset.hairStyle);
+
+  const outfitDefaults = {
+    sleeveLength: 1,
+    sleeveWidth: 1,
+    collarHeight: 1,
+    shirtFit: 1,
+    shortsLength: 1,
+    pantsFit: 0.9,
+    beltThickness: 1,
+    beltWidth: 1,
+    beltVertical: 0,
+    beltBuckle: 1,
+    beltTightness: 1,
+  };
+
+  const outfit = {
+    ...outfitDefaults,
+    ...overrides.outfit,
+    sleeveLength:
+      overrides.outfit?.sleeveLength ?? overrides.sleeveLength ?? outfitDefaults.sleeveLength,
+    sleeveWidth: overrides.outfit?.sleeveWidth ?? outfitDefaults.sleeveWidth,
+    collarHeight:
+      overrides.outfit?.collarHeight ?? overrides.collarHeight ?? outfitDefaults.collarHeight,
+    shirtFit: overrides.outfit?.shirtFit ?? overrides.shirtFit ?? outfitDefaults.shirtFit,
+    shortsLength:
+      overrides.outfit?.shortsLength ?? overrides.shortsLength ?? outfitDefaults.shortsLength,
+    pantsFit: overrides.outfit?.pantsFit ?? overrides.pantsFit ?? outfitDefaults.pantsFit,
+  };
+
+  const face = {
+    brow: overrides.brow ?? overrides.face?.brow ?? facePreset.brow,
+    nose: overrides.nose ?? overrides.face?.nose ?? facePreset.nose,
+    eyeSpacing: overrides.eyeSpacing ?? overrides.face?.eyeSpacing ?? facePreset.eyeSpacing,
+    eyeSize: overrides.face?.eyeSize ?? facePreset.eyeSize,
+    mouth: overrides.mouth ?? overrides.face?.mouth ?? facePreset.mouth,
+    beard: overrides.beard ?? overrides.face?.beard ?? facePreset.beard,
+    stubble: overrides.stubble ?? overrides.face?.stubble ?? facePreset.stubble,
+    headWidth: overrides.face?.headWidth ?? facePreset.headWidth,
+    headHeight: overrides.face?.headHeight ?? facePreset.headHeight,
+    headDepth: overrides.face?.headDepth ?? facePreset.headDepth,
+    headPositionY: overrides.face?.headPositionY ?? facePreset.headPositionY,
+    headPositionZ: overrides.face?.headPositionZ ?? facePreset.headPositionZ,
+    cheekSize: overrides.face?.cheekSize ?? facePreset.cheekSize,
+    cheekWidth: overrides.face?.cheekWidth ?? facePreset.cheekWidth,
+    cheekHeight: overrides.face?.cheekHeight ?? facePreset.cheekHeight,
+    cheekDepth: overrides.face?.cheekDepth ?? facePreset.cheekDepth,
+    cheekSpacing: overrides.face?.cheekSpacing ?? facePreset.cheekSpacing,
+    cheekPositionY: overrides.face?.cheekPositionY ?? facePreset.cheekPositionY,
+    cheekPositionZ: overrides.face?.cheekPositionZ ?? facePreset.cheekPositionZ,
+    jawHeight: overrides.face?.jawHeight ?? facePreset.jawHeight,
+    jawDepth: overrides.face?.jawDepth ?? facePreset.jawDepth,
+    jawPositionY: overrides.face?.jawPositionY ?? facePreset.jawPositionY,
+    jawPositionZ: overrides.face?.jawPositionZ ?? facePreset.jawPositionZ,
+    chinSize: overrides.face?.chinSize ?? facePreset.chinSize,
+    chinWidth: overrides.face?.chinWidth ?? facePreset.chinWidth,
+    chinHeight: overrides.face?.chinHeight ?? facePreset.chinHeight,
+    chinDepth: overrides.face?.chinDepth ?? facePreset.chinDepth,
+    chinPositionY: overrides.face?.chinPositionY ?? facePreset.chinPositionY,
+    chinPositionZ: overrides.face?.chinPositionZ ?? facePreset.chinPositionZ,
+    eyeWidth: overrides.face?.eyeWidth ?? facePreset.eyeWidth,
+    eyeHeight: overrides.face?.eyeHeight ?? facePreset.eyeHeight,
+    eyeDepth: overrides.face?.eyeDepth ?? facePreset.eyeDepth,
+    eyePositionY: overrides.face?.eyePositionY ?? facePreset.eyePositionY,
+    eyePositionZ: overrides.face?.eyePositionZ ?? facePreset.eyePositionZ,
+    noseWidth: overrides.face?.noseWidth ?? facePreset.noseWidth,
+    noseHeight: overrides.face?.noseHeight ?? facePreset.noseHeight,
+    noseDepth: overrides.face?.noseDepth ?? facePreset.noseDepth,
+    nosePositionY: overrides.face?.nosePositionY ?? facePreset.nosePositionY,
+    nosePositionZ: overrides.face?.nosePositionZ ?? facePreset.nosePositionZ,
+    mouthWidth: overrides.face?.mouthWidth ?? facePreset.mouthWidth,
+    mouthHeight: overrides.face?.mouthHeight ?? facePreset.mouthHeight,
+    mouthDepth: overrides.face?.mouthDepth ?? facePreset.mouthDepth,
+    mouthPositionY: overrides.face?.mouthPositionY ?? facePreset.mouthPositionY,
+    mouthPositionZ: overrides.face?.mouthPositionZ ?? facePreset.mouthPositionZ,
+    mouthFullness: overrides.face?.mouthFullness ?? facePreset.mouthFullness,
+    mouthCornerAngle: overrides.face?.mouthCornerAngle ?? facePreset.mouthCornerAngle,
+    mouthOpening: overrides.face?.mouthOpening ?? facePreset.mouthOpening,
+    browWidth: overrides.face?.browWidth ?? facePreset.browWidth,
+    browThickness: overrides.face?.browThickness ?? facePreset.browThickness,
+    browSpacing: overrides.face?.browSpacing ?? facePreset.browSpacing,
+    browPositionY: overrides.face?.browPositionY ?? facePreset.browPositionY,
+    browAngle: overrides.face?.browAngle ?? facePreset.browAngle,
+    browArch: overrides.face?.browArch ?? facePreset.browArch,
+    browInnerHeight: overrides.face?.browInnerHeight ?? facePreset.browInnerHeight,
+    browOuterHeight: overrides.face?.browOuterHeight ?? facePreset.browOuterHeight,
+    browInnerForward: overrides.face?.browInnerForward ?? facePreset.browInnerForward,
+    browOuterForward: overrides.face?.browOuterForward ?? facePreset.browOuterForward,
+    hairScale: overrides.face?.hairScale ?? facePreset.hairScale,
+    hairWidth: overrides.face?.hairWidth ?? facePreset.hairWidth,
+    hairHeight: overrides.face?.hairHeight ?? facePreset.hairHeight,
+    hairDepth: overrides.face?.hairDepth ?? facePreset.hairDepth,
+    hairPositionY: overrides.face?.hairPositionY ?? facePreset.hairPositionY,
+    hairPositionZ: overrides.face?.hairPositionZ ?? facePreset.hairPositionZ,
+    hairCrownWidth: overrides.face?.hairCrownWidth ?? facePreset.hairCrownWidth,
+    hairCrownHeight: overrides.face?.hairCrownHeight ?? facePreset.hairCrownHeight,
+    hairCrownDepth: overrides.face?.hairCrownDepth ?? facePreset.hairCrownDepth,
+    hairCrownGrowIn: overrides.face?.hairCrownGrowIn ?? facePreset.hairCrownGrowIn,
+    hairBackWidth: overrides.face?.hairBackWidth ?? facePreset.hairBackWidth,
+    hairBackHeight: overrides.face?.hairBackHeight ?? facePreset.hairBackHeight,
+    hairBackDepth: overrides.face?.hairBackDepth ?? facePreset.hairBackDepth,
+    hairBackGrowIn: overrides.face?.hairBackGrowIn ?? facePreset.hairBackGrowIn,
+    hairSideWidth: overrides.face?.hairSideWidth ?? facePreset.hairSideWidth,
+    hairSideHeight: overrides.face?.hairSideHeight ?? facePreset.hairSideHeight,
+    hairSideDepth: overrides.face?.hairSideDepth ?? facePreset.hairSideDepth,
+    sideburnLength: overrides.face?.sideburnLength ?? facePreset.sideburnLength,
+    sideburnWidth: overrides.face?.sideburnWidth ?? facePreset.sideburnWidth,
+    earSize: overrides.face?.earSize ?? facePreset.earSize,
+    earProminence: overrides.face?.earProminence ?? facePreset.earProminence,
+    earSpacing: overrides.face?.earSpacing ?? facePreset.earSpacing,
+    earVertical: overrides.face?.earVertical ?? facePreset.earVertical,
+    backHairLength: overrides.face?.backHairLength ?? facePreset.backHairLength,
+  };
+
+  const appearance: CharacterAppearance = {
+    avatarModelId: overrides.avatarModelId ?? 'none',
+    bodyProfile: baseProfile,
+    profile,
+    skinTone: overrides.skinTone ?? facePreset.skinTone,
+    hairStyle: normalizedHairStyle,
+    hairColor: overrides.hairColor ?? facePreset.hairColor,
+    shirtColor: overrides.shirtColor ?? JERSEY,
+    shortsColor: overrides.shortsColor ?? SHORTS,
+    shoeColor: overrides.shoeColor ?? SHOE,
+    accentColor: overrides.accentColor ?? 0xd72638,
+    beltColor: overrides.beltColor,
+    buckleColor: overrides.buckleColor,
+    jerseyNumber: overrides.jerseyNumber ?? 1,
+    brow: face.brow,
+    nose: face.nose,
+    eyeSpacing: face.eyeSpacing,
+    mouth: face.mouth,
+    beard: face.beard,
+    stubble: face.stubble,
+    sleeveLength: outfit.sleeveLength,
+    collarHeight: outfit.collarHeight,
+    shirtFit: outfit.shirtFit,
+    shortsLength: outfit.shortsLength,
+    pantsFit: outfit.pantsFit,
+    facePreset: presetId,
+    outfit,
+    face,
+  };
+
+  return appearance;
+}
+
+export const FACE_PRESETS: Record<FacePresetId, FaceConfig> = {
+  male: {
+    preset: 'male',
+    skinTone: 0xe8c4b8,
+    hairColor: 0x1b120d,
+    hairStyle: 'buzzCut',
+    headScale: 1.0,
+    jawWidth: 0.99,
+    chinShape: 0.96,
+    brow: 0.72,
+    nose: 0.32,
+    eyeSpacing: 0.7,
+    eyeSize: 1.0,
+    mouth: 0.42,
+    beard: 0,
+    stubble: 0,
+    ...FACE_ADVANCED_DEFAULTS,
+  },
+  female: {
+    preset: 'female',
+    skinTone: 0xeec19a,
+    hairColor: 0x6b4a2f,
+    hairStyle: 'bun',
+    headScale: 0.96,
+    jawWidth: 0.78,
+    chinShape: 0.7,
+    brow: 0.28,
+    nose: 0.72,
+    eyeSpacing: 0.62,
+    eyeSize: 1.0,
+    mouth: 0.36,
+    beard: 0,
+    stubble: 0,
+    ...FACE_ADVANCED_DEFAULTS,
+  },
+  neutral: {
+    preset: 'neutral',
+    skinTone: 0xefc49d,
+    hairColor: 0x533725,
+    hairStyle: 'shortCrop',
+    headScale: 1.04,
+    jawWidth: 1.08,
+    chinShape: 0.99,
+    brow: 0.55,
+    nose: 0.57,
+    eyeSpacing: 0.57,
+    eyeSize: 1.0,
+    mouth: 0.52,
+    beard: 0,
+    stubble: 0.02,
+    ...FACE_ADVANCED_DEFAULTS,
+  },
+};
+
+export const DEFAULT_MALE_FACE: FaceConfig = { ...FACE_PRESETS.male };
+
+export const DEFAULT_MALE_APPEARANCE: GolferAppearance = buildCharacterAppearance({
+  avatarModelId: 'none',
+  bodyProfile: 'athleticMale',
+  skinTone: 0xe8c4b8,
+  hairStyle: 'buzzCut',
+  hairColor: 0x1b120d,
+  shirtColor: 0xf2f4f8,
+  shortsColor: 0x1a1a1e,
+  shoeColor: SHOE,
+  accentColor: 0xe02b20,
+  beltColor: 10167069,
+  jerseyNumber: 1,
+  beard: 0,
+  stubble: 0,
+  facePreset: 'male',
+  // Canonical approved male body proportions. These OVERRIDE the shared
+  // BODY_PROFILES.athleticMale for this default golfer only (the preset stays
+  // untouched so other golfers/tests are unaffected).
+  profile: {
+    ...BODY_PROFILES.athleticMale,
+    shoulderWidth: 1.07,
+    torsoLength: 0.94,
+    torsoTaper: 1.1,
+    hipWidth: 0.5,
+    hipDepth: 0.6,
+    armThickness: 0.59,
+    armLength: 0.65,
+    thighLength: 0.96,
+    legLength: 0.77,
+    legTaper: 0.84,
+    thighThickness: 1.15,
+    headScale: 1.06,
+    jawWidth: 1.12,
+    chinShape: 0.25,
+    neckLength: 1.27,
+    chestWidth: 0.75,
+    chestDepth: 0.6,
+    waistSize: 1.45,
+    lowerTorsoWidth: 0.91,
+    headVertical: 1.4,
+    trapeziusWidth: 0.5,
+    trapeziusHeight: 0.56,
+    trapeziusVertical: 1.1,
+    shoulderInOut: 0.65,
+    shoulderVertical: 0.94,
+    shortsWidth: 1.2,
+    shortsLength: 0.87,
+    shortsRise: -0.19,
+    shortsForward: 0.01,
+    shortsDepth: 0.97,
+    shortLegWidth: 1.15,
+    shortLegLength: 0.85,
+    footLength: 1.07,
+    footWidth: 1.6,
+    footHeight: 1.29,
+    sockThickness: 0.5,
+  },
+  // Canonical approved male face/hair. Overrides FACE_PRESETS.male +
+  // FACE_ADVANCED_DEFAULTS for this default golfer only.
+  face: {
+    brow: 0.47,
+    nose: 0.62,
+    eyeSpacing: 0.79,
+    mouth: 0.79,
+    beard: 0,
+    stubble: 0,
+    headPositionY: -0.12,
+    headPositionZ: -0.015,
+    cheekSize: 0.93,
+    cheekWidth: 0.73,
+    cheekHeight: 1.14,
+    cheekDepth: 1.39,
+    cheekSpacing: 0.56,
+    cheekPositionY: -0.095,
+    cheekPositionZ: -0.01,
+    chinSize: 0.87,
+    chinDepth: 0.61,
+    chinPositionY: -0.115,
+    chinPositionZ: -0.015,
+    eyePositionY: -0.07,
+    noseWidth: 1.34,
+    noseHeight: 0.46,
+    noseDepth: 1.19,
+    nosePositionY: -0.085,
+    mouthDepth: 1.65,
+    mouthPositionY: -0.03,
+    mouthFullness: 1.18,
+    mouthCornerAngle: -3,
+    browWidth: 0.89,
+    browSpacing: 1.19,
+    browPositionY: -0.06,
+    browAngle: 2,
+    browInnerHeight: 0.02,
+    hairScale: 1.09,
+    hairDepth: 0.94,
+    hairPositionY: 0.06,
+    hairCrownGrowIn: 1.25,
+    hairBackGrowIn: 0.96,
+    earSize: 2.5,
+    earProminence: 0.46,
+    earSpacing: 1.29,
+    earVertical: 0.045,
+    backHairLength: 1.28,
+  },
+  // Canonical approved outfit fit (sleeve/belt). Overrides outfitDefaults.
+  outfit: {
+    sleeveLength: 0.76,
+    sleeveWidth: 0.5,
+    collarHeight: 1,
+    shirtFit: 1,
+    shortsLength: 1,
+    pantsFit: 0.9,
+    beltThickness: 1,
+    beltWidth: 1.12,
+    beltVertical: -0.02,
+    beltBuckle: 1.34,
+    beltTightness: 0.79,
+  },
+});
+
+export const DEFAULT_GOLFER_APPEARANCE: GolferAppearance = DEFAULT_MALE_APPEARANCE;
+
+/**
+ * Right-handed backhand, matching public/throw_positions/step1..6.
+ * Angles are hand-authored; tweak these to retime or reshape the throw.
+ */
+const THROW_SEQUENCE: { pose: Pose; duration: number }[] = [
+  {
+    duration: 0.35,
+    pose: {
+      rootYaw: 0.18,
+      rootLift: 0,
+      joints: {
+        hips: [0, 0.08, 0],
+        torso: [0.2, 0.12, 0],
+        head: [0, -0.15, 0],
+        shoulderR: [1.05, 0, -0.7],
+        elbowR: [0, 0, -1.95],
+        shoulderL: [0.52, 0, 0.38],
+        elbowL: [0, 0, 0.88],
+        hipR: [-0.15, 0, 0.08],
+        kneeR: [0.15, 0, 0],
+        hipL: [0.2, 0, -0.04],
+        kneeL: [0.18, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.4,
+    pose: {
+      rootYaw: 0.82,
+      rootLift: -0.05,
+      joints: {
+        hips: [0, 0.26, 0],
+        torso: [0.26, 0.42, 0],
+        head: [0, -0.7, 0],
+        shoulderR: [0.38, 0, -0.95],
+        elbowR: [0, 0, -1.2],
+        shoulderL: [0.7, 0, 0.58],
+        elbowL: [0, 0, 1.06],
+        hipR: [-0.52, 0, 0.12],
+        kneeR: [0.9, 0, 0],
+        hipL: [0.38, 0, -0.1],
+        kneeL: [0.18, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.3,
+    pose: {
+      rootYaw: 1.62,
+      rootLift: -0.12,
+      joints: {
+        hips: [0, 0.32, 0],
+        torso: [0.3, 0.56, 0],
+        head: [0, -1.2, 0],
+        shoulderR: [-0.3, 0, -1.2],
+        elbowR: [0, 0, -0.52],
+        shoulderL: [0.95, 0, 0.72],
+        elbowL: [0, 0, 1.25],
+        hipR: [-0.38, 0, 0.15],
+        kneeR: [1.12, 0, 0],
+        hipL: [0.52, 0, -0.12],
+        kneeL: [0.26, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.16,
+    pose: {
+      rootYaw: 0.5,
+      rootLift: -0.1,
+      joints: {
+        hips: [0, -0.15, 0],
+        torso: [0.1, 0.1, 0],
+        head: [0, -0.35, 0],
+        shoulderR: [0.15, 0, -0.35],
+        elbowR: [0, 0, -2.1],
+        shoulderL: [0.5, 0, 1.0],
+        elbowL: [0, 0, 0.7],
+        hipR: [-0.15, 0, 0.1],
+        kneeR: [0.5, 0, 0],
+        hipL: [0.25, 0, -0.1],
+        kneeL: [0.2, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.12,
+    pose: {
+      rootYaw: -0.45,
+      rootLift: -0.02,
+      joints: {
+        hips: [0, -0.45, 0],
+        torso: [0.05, -0.3, 0],
+        head: [0, 0.2, 0],
+        shoulderR: [0.1, 0, 1.45],
+        elbowR: [0, 0, -0.12],
+        shoulderL: [0.1, 0, -1.2],
+        elbowL: [0, 0, 0.3],
+        hipR: [0.15, 0, 0.1],
+        kneeR: [0.25, 0, 0],
+        hipL: [-0.15, 0, -0.1],
+        kneeL: [0.35, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.45,
+    pose: {
+      rootYaw: -1.5,
+      rootLift: 0.02,
+      joints: {
+        hips: [0, -0.5, 0],
+        torso: [0.02, -0.45, 0],
+        head: [0, 0.6, 0],
+        shoulderR: [0.2, 0, 0.9],
+        elbowR: [0, 0, -0.5],
+        shoulderL: [0.15, 0, -0.95],
+        elbowL: [0, 0, 0.45],
+        hipR: [0.25, 0, 0.1],
+        kneeR: [0.2, 0, 0],
+        hipL: [-0.7, 0, -0.15],
+        kneeL: [1.5, 0, 0],
+      },
+    },
+  },
+];
+
+const RELEASE_INDEX = 4;
+const RECOVER_DURATION = 0.9;
+const GOLFER_SCALE = 2.25;
+
+const FOREHAND_SEQUENCE: { pose: Pose; duration: number }[] = [
+  {
+    duration: 0.3,
+    pose: {
+      rootYaw: -0.15,
+      rootLift: 0,
+      joints: {
+        torso: [0.05, -0.1, 0],
+        shoulderR: [0.55, 0, 0.75],
+        elbowR: [0, 0, -1.3],
+        shoulderL: [0.3, 0, -0.4],
+        elbowL: [0, 0, 0.6],
+        hipR: [-0.1, 0, 0.05],
+        kneeR: [0.2, 0, 0],
+        hipL: [0.1, 0, -0.05],
+        kneeL: [0.2, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.3,
+    pose: {
+      rootYaw: -0.5,
+      rootLift: -0.06,
+      joints: {
+        torso: [0.1, -0.3, 0],
+        shoulderR: [0.3, 0, 1.15],
+        elbowR: [0, 0, -1.7],
+        shoulderL: [0.4, 0, -0.7],
+        elbowL: [0, 0, 0.8],
+        hipR: [-0.3, 0, 0.1],
+        kneeR: [0.6, 0, 0],
+        hipL: [0.3, 0, -0.1],
+        kneeL: [0.2, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.22,
+    pose: {
+      rootYaw: -0.9,
+      rootLift: -0.12,
+      joints: {
+        torso: [0.14, -0.55, 0],
+        shoulderR: [-0.1, 0, 1.5],
+        elbowR: [0, 0, -2.3],
+        shoulderL: [0.5, 0, -0.9],
+        elbowL: [0, 0, 1.0],
+        hipR: [-0.4, 0, 0.12],
+        kneeR: [0.8, 0, 0],
+        hipL: [0.4, 0, -0.12],
+        kneeL: [0.3, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.13,
+    pose: {
+      rootYaw: -0.25,
+      rootLift: -0.08,
+      joints: {
+        torso: [0.08, -0.15, 0],
+        shoulderR: [0.1, 0, 1.3],
+        elbowR: [0, 0, -1.5],
+        shoulderL: [0.4, 0, -0.6],
+        elbowL: [0, 0, 0.6],
+        hipR: [-0.1, 0, 0.1],
+        kneeR: [0.4, 0, 0],
+        hipL: [0.2, 0, -0.1],
+        kneeL: [0.2, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.1,
+    pose: {
+      rootYaw: 0.35,
+      rootLift: -0.02,
+      joints: {
+        torso: [0.02, 0.3, 0],
+        shoulderR: [0.15, 0, 1.52],
+        elbowR: [0, 0, -0.1],
+        shoulderL: [0.2, 0, -1.1],
+        elbowL: [0, 0, 0.3],
+        hipR: [0.1, 0, 0.1],
+        kneeR: [0.25, 0, 0],
+        hipL: [-0.1, 0, -0.1],
+        kneeL: [0.3, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.4,
+    pose: {
+      rootYaw: 0.8,
+      rootLift: 0.02,
+      joints: {
+        torso: [0, 0.5, 0],
+        shoulderR: [0.3, 0, 1.0],
+        elbowR: [0, 0, -0.8],
+        shoulderL: [0.2, 0, -0.9],
+        elbowL: [0, 0, 0.5],
+        hipR: [0.2, 0, 0.1],
+        kneeR: [0.2, 0, 0],
+        hipL: [-0.4, 0, -0.12],
+        kneeL: [1.1, 0, 0],
+      },
+    },
+  },
+];
+
+const OVERHAND_SEQUENCE: { pose: Pose; duration: number }[] = [
+  {
+    duration: 0.3,
+    pose: {
+      rootYaw: 0,
+      rootLift: 0,
+      joints: {
+        torso: [0.05, 0, 0],
+        shoulderR: [0.8, 0, -0.4],
+        elbowR: [0, 0, -1.4],
+        shoulderL: [0.4, 0, 0.3],
+        elbowL: [0, 0, 0.8],
+        hipR: [-0.1, 0, 0.05],
+        kneeR: [0.2, 0, 0],
+        hipL: [0.1, 0, -0.05],
+        kneeL: [0.2, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.32,
+    pose: {
+      rootYaw: 0.4,
+      rootLift: -0.05,
+      joints: {
+        torso: [0.12, 0.25, 0],
+        shoulderR: [-0.5, 0, -0.9],
+        elbowR: [0, 0, -1.1],
+        shoulderL: [0.7, 0, 0.5],
+        elbowL: [0, 0, 1.0],
+        hipR: [-0.35, 0, 0.1],
+        kneeR: [0.7, 0, 0],
+        hipL: [0.3, 0, -0.1],
+        kneeL: [0.2, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.24,
+    pose: {
+      rootYaw: 0.6,
+      rootLift: -0.1,
+      joints: {
+        torso: [0.2, 0.35, 0],
+        shoulderR: [-1.5, 0, -0.5],
+        elbowR: [0, 0, -1.9],
+        shoulderL: [0.9, 0, 0.6],
+        elbowL: [0, 0, 1.2],
+        hipR: [-0.3, 0, 0.12],
+        kneeR: [0.9, 0, 0],
+        hipL: [0.45, 0, -0.12],
+        kneeL: [0.25, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.14,
+    pose: {
+      rootYaw: 0.25,
+      rootLift: -0.06,
+      joints: {
+        torso: [0.05, 0.1, 0],
+        shoulderR: [-2.4, 0, -0.25],
+        elbowR: [0, 0, -1.3],
+        shoulderL: [0.6, 0, 0.6],
+        elbowL: [0, 0, 0.8],
+        hipR: [-0.1, 0, 0.1],
+        kneeR: [0.4, 0, 0],
+        hipL: [0.2, 0, -0.1],
+        kneeL: [0.2, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.1,
+    pose: {
+      rootYaw: -0.1,
+      rootLift: 0,
+      joints: {
+        torso: [-0.15, -0.1, 0],
+        shoulderR: [-2.95, 0, -0.12],
+        elbowR: [0, 0, -0.15],
+        shoulderL: [0.3, 0, -0.5],
+        elbowL: [0, 0, 0.3],
+        hipR: [0.1, 0, 0.1],
+        kneeR: [0.25, 0, 0],
+        hipL: [-0.1, 0, -0.1],
+        kneeL: [0.3, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.42,
+    pose: {
+      rootYaw: -0.4,
+      rootLift: 0.02,
+      joints: {
+        torso: [-0.3, -0.3, 0],
+        shoulderR: [-3.0, 0, 0.3],
+        elbowR: [0, 0, -0.6],
+        shoulderL: [0.2, 0, -0.8],
+        elbowL: [0, 0, 0.4],
+        hipR: [0.2, 0, 0.1],
+        kneeR: [0.2, 0, 0],
+        hipL: [-0.5, 0, -0.12],
+        kneeL: [1.2, 0, 0],
+      },
+    },
+  },
+];
+
+const PUTT_SEQUENCE: { pose: Pose; duration: number }[] = [
+  {
+    duration: 0.3,
+    pose: {
+      rootYaw: 0,
+      rootLift: 0,
+      joints: {
+        torso: [0.04, 0, 0],
+        shoulderR: [0.95, 0, -0.55],
+        elbowR: [0, 0, -1.7],
+        shoulderL: [0.5, 0, 0.3],
+        elbowL: [0, 0, 0.9],
+        hipR: [-0.08, 0, 0.05],
+        kneeR: [0.18, 0, 0],
+        hipL: [0.08, 0, -0.05],
+        kneeL: [0.18, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.28,
+    pose: {
+      rootYaw: 0.06,
+      rootLift: -0.12,
+      joints: {
+        torso: [0.16, 0.05, 0],
+        shoulderR: [1.05, 0, -0.5],
+        elbowR: [0, 0, -2.0],
+        shoulderL: [0.5, 0, 0.3],
+        elbowL: [0, 0, 1.0],
+        hipR: [-0.3, 0, 0.06],
+        kneeR: [0.6, 0, 0],
+        hipL: [-0.28, 0, -0.06],
+        kneeL: [0.58, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.2,
+    pose: {
+      rootYaw: 0.08,
+      rootLift: -0.18,
+      joints: {
+        torso: [0.22, 0.08, 0],
+        shoulderR: [1.15, 0, -0.45],
+        elbowR: [0, 0, -2.25],
+        shoulderL: [0.48, 0, 0.28],
+        elbowL: [0, 0, 1.05],
+        hipR: [-0.4, 0, 0.06],
+        kneeR: [0.8, 0, 0],
+        hipL: [-0.38, 0, -0.06],
+        kneeL: [0.78, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.14,
+    pose: {
+      rootYaw: 0.02,
+      rootLift: -0.06,
+      joints: {
+        torso: [0.06, 0.02, 0],
+        shoulderR: [0.95, 0, -0.3],
+        elbowR: [0, 0, -1.2],
+        shoulderL: [0.42, 0, 0.26],
+        elbowL: [0, 0, 0.8],
+        hipR: [-0.15, 0, 0.06],
+        kneeR: [0.3, 0, 0],
+        hipL: [-0.14, 0, -0.06],
+        kneeL: [0.28, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.12,
+    pose: {
+      rootYaw: 0,
+      rootLift: 0.05,
+      joints: {
+        torso: [-0.1, 0, 0],
+        shoulderR: [1.35, 0, -0.14],
+        elbowR: [0, 0, -0.1],
+        shoulderL: [0.35, 0, 0.22],
+        elbowL: [0, 0, 0.6],
+        hipR: [0.05, 0, 0.05],
+        kneeR: [0.1, 0, 0],
+        hipL: [0.04, 0, -0.05],
+        kneeL: [0.1, 0, 0],
+      },
+    },
+  },
+  {
+    duration: 0.35,
+    pose: {
+      rootYaw: 0,
+      rootLift: 0.02,
+      joints: {
+        torso: [-0.14, 0, 0],
+        shoulderR: [1.5, 0, -0.1],
+        elbowR: [0, 0, -0.2],
+        shoulderL: [0.3, 0, 0.2],
+        elbowL: [0, 0, 0.5],
+        hipR: [0.02, 0, 0.05],
+        kneeR: [0.12, 0, 0],
+        hipL: [0.02, 0, -0.05],
+        kneeL: [0.12, 0, 0],
+      },
+    },
+  },
+];
+
+const SEQUENCES = {
+  backhand: THROW_SEQUENCE,
+  forehand: FOREHAND_SEQUENCE,
+  overhand: OVERHAND_SEQUENCE,
+  putt: PUTT_SEQUENCE,
+};
+
+export type ThrowAnimation = keyof typeof SEQUENCES;
+
+function limb(length: number, radius: number, color: number): THREE.Mesh {
+  const geometry = new THREE.CapsuleGeometry(radius, length, 6, 14);
+  geometry.translate(0, -length / 2 - radius, 0);
+  const material = new THREE.MeshStandardMaterial({ color, roughness: 0.78, metalness: 0.04 });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+// Waist frustum: an elliptical tapered section whose TOP matches the chest
+// boundary and whose BOTTOM matches the authored waist. Radii (both X width
+// and Z depth) are baked into the geometry because mesh.scale cannot taper
+// top vs bottom independently. Each ring's X/Z radii interpolate top→bottom so
+// BOTH width and depth are continuous at the chest seam. Centered at origin;
+// the mesh position places its center.
+function makeWaistGeometry(
+  topRadiusX: number,
+  bottomRadiusX: number,
+  topRadiusZ: number,
+  bottomRadiusZ: number,
+  height: number
+) {
+  const geo = new THREE.CylinderGeometry(1, 1, height, 20, 1, false);
+  const pos = geo.attributes.position as THREE.BufferAttribute;
+  const half = height / 2;
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    // t: 0 at top (+half), 1 at bottom (-half). End caps share ring verts.
+    const t = (half - y) / height;
+    const rx = topRadiusX + (bottomRadiusX - topRadiusX) * t;
+    const rz = topRadiusZ + (bottomRadiusZ - topRadiusZ) * t;
+    pos.setX(i, pos.getX(i) * rx);
+    pos.setZ(i, pos.getZ(i) * rz);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function createDiscVisual(color: number): THREE.Mesh {
+  const geometry = new THREE.CylinderGeometry(0.124, 0.124, 0.027, 20);
+  const material = new THREE.MeshStandardMaterial({ color, roughness: 0.45 });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.rotation.z = Math.PI / 2;
+  return mesh;
+}
+
+function createJerseyTexture(
+  baseColor: number,
+  accentColor: number,
+  numberText: string
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  if (!ctx || typeof ctx.fillRect !== 'function') {
+    const fallback = new THREE.CanvasTexture(canvas);
+    fallback.colorSpace = THREE.SRGBColorSpace;
+    return fallback;
+  }
+
+  ctx.fillStyle = '#111827';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const base = new THREE.Color(baseColor);
+  const accent = new THREE.Color(accentColor);
+  const white = '#f5f7fb';
+  const gray = '#d8dde6';
+  const dark = '#0f172a';
+
+  ctx.fillStyle = `#${base.getHexString()}`;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = `#${accent.getHexString()}`;
+  ctx.fillRect(0, 0, canvas.width, 54);
+  ctx.fillRect(0, canvas.height - 54, canvas.width, 54);
+  ctx.fillRect(0, 0, 54, canvas.height);
+  ctx.fillRect(canvas.width - 54, 0, 54, canvas.height);
+
+  ctx.fillStyle = gray;
+  ctx.fillRect(120, 170, canvas.width - 240, 26);
+  ctx.fillRect(120, 314, canvas.width - 240, 18);
+
+  ctx.fillStyle = white;
+  ctx.fillRect(150, 220, canvas.width - 300, 100);
+  ctx.fillStyle = dark;
+  ctx.strokeStyle = '#f8fafc';
+  ctx.lineWidth = 12;
+  ctx.strokeRect(165, 235, canvas.width - 330, 70);
+
+  ctx.fillStyle = '#e11d48';
+  ctx.beginPath();
+  ctx.moveTo(canvas.width / 2, 116);
+  ctx.lineTo(canvas.width / 2 - 44, 170);
+  ctx.lineTo(canvas.width / 2 + 44, 170);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = '700 110px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(numberText, canvas.width / 2, canvas.height / 2 + 28);
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = '700 44px sans-serif';
+  ctx.fillText('ACE', canvas.width / 2, 208);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function createJerseyMaterial(appearance: GolferAppearance): THREE.MeshStandardMaterial {
+  const texture = createJerseyTexture(
+    appearance.shirtColor,
+    appearance.accentColor ?? 0xe02b20,
+    String(Math.max(0, Math.round(appearance.jerseyNumber || 1)))
+  );
+
+  return new THREE.MeshStandardMaterial({
+    map: texture,
+    roughness: 0.72,
+    metalness: 0.04,
+    color: 0xffffff,
+  });
+}
+
+export const FACE_MODEL_URL = '/models/facecap.glb';
+export const FACE_MODEL_MORPH_TARGETS = [
+  'browInnerUp',
+  'browDown_L',
+  'browDown_R',
+  'browOuterUp_L',
+  'browOuterUp_R',
+  'eyeLookUp_L',
+  'eyeLookUp_R',
+  'eyeLookDown_L',
+  'eyeLookDown_R',
+  'eyeLookIn_L',
+  'eyeLookIn_R',
+  'eyeLookOut_L',
+  'eyeLookOut_R',
+  'eyeBlink_L',
+  'eyeBlink_R',
+  'eyeSquint_L',
+  'eyeSquint_R',
+  'eyeWide_L',
+  'eyeWide_R',
+  'cheekPuff',
+  'cheekSquint_L',
+  'cheekSquint_R',
+  'noseSneer_L',
+  'noseSneer_R',
+  'jawOpen',
+  'jawForward',
+  'jawLeft',
+  'jawRight',
+  'mouthFunnel',
+  'mouthPucker',
+  'mouthLeft',
+  'mouthRight',
+  'mouthRollUpper',
+  'mouthRollLower',
+  'mouthShrugUpper',
+  'mouthShrugLower',
+  'mouthClose',
+  'mouthSmile_L',
+  'mouthSmile_R',
+  'mouthFrown_L',
+  'mouthFrown_R',
+  'mouthDimple_L',
+  'mouthDimple_R',
+  'mouthUpperUp_L',
+  'mouthUpperUp_R',
+  'mouthLowerDown_L',
+  'mouthLowerDown_R',
+  'mouthPress_L',
+  'mouthPress_R',
+  'mouthStretch_L',
+  'mouthStretch_R',
+  'tongueOut',
+] as const;
+
+export class Face {
+  private static modelLoader?: GLTFLoader;
+  private static sharedKTX2Loader?: KTX2Loader;
+
+  readonly root = new THREE.Group();
+  public config: FaceConfig;
+  private faceMesh?: THREE.Mesh & {
+    morphTargetDictionary?: Record<string, number>;
+    morphTargetInfluences?: number[];
+  };
+  private hairRoot?: THREE.Group;
+  private lastJawDebugValue?: number;
+  private lastEyeDebugValue?: number;
+  private readonly baselineTransforms = new Map<
+    THREE.Object3D,
+    { position: THREE.Vector3; rotation: THREE.Euler; scale: THREE.Vector3 }
+  >();
+  private readonly faceParts = {
+    head: undefined as THREE.Mesh | undefined,
+    jaw: undefined as THREE.Mesh | undefined,
+    cheeks: {
+      left: undefined as THREE.Mesh | undefined,
+      right: undefined as THREE.Mesh | undefined,
+    },
+    eyes: {
+      left: {
+        white: undefined as THREE.Mesh | undefined,
+        iris: undefined as THREE.Mesh | undefined,
+        eyelid: undefined as THREE.Mesh | undefined,
+      },
+      right: {
+        white: undefined as THREE.Mesh | undefined,
+        iris: undefined as THREE.Mesh | undefined,
+        eyelid: undefined as THREE.Mesh | undefined,
+      },
+    },
+    brows: {
+      left: undefined as THREE.Group | undefined,
+      right: undefined as THREE.Group | undefined,
+    },
+    nose: undefined as THREE.Mesh | undefined,
+    mouth: undefined as THREE.Group | undefined,
+    mouthUpper: undefined as THREE.Mesh | undefined,
+    mouthLower: undefined as THREE.Mesh | undefined,
+    hairRoot: undefined as THREE.Group | undefined,
+  };
+  readonly ready: Promise<void>;
+
+  static getModelLoader(): GLTFLoader {
+    if (!Face.modelLoader) {
+      const loader = new GLTFLoader();
+      loader.setKTX2Loader(Face.getSharedKTX2Loader());
+      loader.setMeshoptDecoder(MeshoptDecoder);
+      Face.modelLoader = loader;
+    }
+    return Face.modelLoader;
+  }
+
+  static getSharedKTX2Loader(): KTX2Loader {
+    if (!Face.sharedKTX2Loader) {
+      const loader = new KTX2Loader();
+      loader.setTranscoderPath('/node_modules/three/examples/jsm/libs/basis/');
+      Face.sharedKTX2Loader = loader;
+    }
+    return Face.sharedKTX2Loader;
+  }
+
+  constructor(config: Partial<FaceConfig> = {}) {
+    this.config = { ...FACE_PRESETS.male, ...config };
+    this.config.hairStyle = this.normalizeHairStyle(this.config.hairStyle);
+    this.root.visible = true;
+    this.buildLegacyFallbackHead();
+    const debugState = {
+      preset: this.config.preset,
+      hairStyle: this.config.hairStyle,
+      headScale: this.config.headScale,
+      jawWidth: this.config.jawWidth,
+      chinShape: this.config.chinShape,
+      faceMesh: null,
+      visible: this.root.visible,
+    };
+    console.warn('[Face] constructor start', debugState);
+    if (typeof window !== 'undefined') {
+      (window as Window & { __faceDebug?: Record<string, unknown> }).__faceDebug = {
+        ...(window as Window & { __faceDebug?: Record<string, unknown> }).__faceDebug,
+        last: debugState,
+      };
+    }
+    this.ready = Promise.resolve().then(() => {
+      this.root.visible = true;
+      this.apply();
+      this.debugObjectState('procedural face active');
+    });
+  }
+
+  getMorphTargetNames(): string[] {
+    return [...FACE_MODEL_MORPH_TARGETS];
+  }
+
+  private normalizeHairStyle(style: HairStyle | undefined): HairStyle {
+    if (style === 'short' || style === 'cap' || style === 'visor') {
+      return 'shortCrop';
+    }
+    return style ?? 'shortCrop';
+  }
+
+  private buildLegacyFallbackHead() {
+    this.root.clear();
+    this.faceMesh = undefined;
+    this.baselineTransforms.clear();
+
+    const skin = new THREE.MeshStandardMaterial({
+      color: this.config.skinTone,
+      roughness: 0.72,
+      metalness: 0.04,
+    });
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.16, 26, 24), skin);
+    head.name = 'head-part';
+    head.scale.set(1.12, 1.34, 1.06);
+    head.position.y = 0.04;
+    head.castShadow = true;
+    this.root.add(head);
+
+    const jaw = new THREE.Mesh(new THREE.SphereGeometry(0.118, 20, 18), skin.clone());
+    jaw.name = 'jaw-part';
+    jaw.scale.set(0.85, 0.6, 0.9);
+    jaw.position.set(0, -0.125, 0.06);
+    this.root.add(jaw);
+
+    const cheekLeft = new THREE.Mesh(new THREE.SphereGeometry(0.04, 12, 10), skin.clone());
+    cheekLeft.name = 'cheek-left';
+    cheekLeft.scale.set(1.44, 0.96, 0.8);
+    cheekLeft.position.set(-0.1, -0.02, 0.1);
+    this.root.add(cheekLeft);
+
+    const cheekRight = cheekLeft.clone();
+    cheekRight.name = 'cheek-right';
+    cheekRight.position.x = 0.1;
+    this.root.add(cheekRight);
+
+    const eyeMaterial = new THREE.MeshStandardMaterial({ color: 0xf4f7ff, roughness: 0.25 });
+    const eyeLeft = new THREE.Mesh(new THREE.SphereGeometry(0.028, 12, 10), eyeMaterial);
+    eyeLeft.name = 'eye-white-left';
+    eyeLeft.position.set(-0.058, 0.03, 0.12);
+    this.root.add(eyeLeft);
+
+    const eyeRight = eyeLeft.clone();
+    eyeRight.name = 'eye-white-right';
+    eyeRight.position.x = 0.058;
+    this.root.add(eyeRight);
+
+    const irisMaterial = new THREE.MeshStandardMaterial({ color: 0x5a7a45, roughness: 0.5 });
+    const irisLeft = new THREE.Mesh(new THREE.SphereGeometry(0.011, 10, 10), irisMaterial);
+    irisLeft.name = 'iris-left';
+    irisLeft.position.set(-0.058, 0.03, 0.146);
+    this.root.add(irisLeft);
+
+    const irisRight = irisLeft.clone();
+    irisRight.name = 'iris-right';
+    irisRight.position.x = 0.058;
+    this.root.add(irisRight);
+
+    const browMaterial = new THREE.MeshStandardMaterial({ color: 0x433129, roughness: 0.85 });
+    // Procedural eyebrow: a 3-region tapered shape (inner / center / outer) that
+    // can arch, instead of a flat rectangular block. Each brow is a small group
+    // of three soft capsules forming a gentle arc following the forehead.
+    const buildBrow = (side: 1 | -1) => {
+      const brow = new THREE.Group();
+      brow.name = side < 0 ? 'brow-left' : 'brow-right';
+      // Three tapered regions from inner (near nose) to outer (temple).
+      const regions = [
+        { name: 'inner', x: 0.024, r: 0.011, len: 0.024 },
+        { name: 'center', x: 0.0, r: 0.0125, len: 0.026 },
+        { name: 'outer', x: -0.024, r: 0.009, len: 0.024 },
+      ];
+      regions.forEach((reg) => {
+        const seg = new THREE.Mesh(new THREE.CapsuleGeometry(reg.r, reg.len, 4, 8), browMaterial);
+        seg.name = `brow-seg-${reg.name}`;
+        // local X = inner(+) toward nose ... outer(-) toward temple (per side sign)
+        seg.position.set(side * reg.x, 0, 0);
+        seg.rotation.z = Math.PI / 2; // capsules lie along X
+        brow.add(seg);
+      });
+      brow.position.set(side * 0.06, 0.086, 0.124);
+      brow.rotation.z = side * -0.12;
+      return brow;
+    };
+    const browLeft = buildBrow(-1);
+    const browRight = buildBrow(1);
+    this.root.add(browLeft, browRight);
+
+    const eyelidLeft = new THREE.Mesh(
+      new THREE.BoxGeometry(0.06, 0.014, 0.014),
+      new THREE.MeshStandardMaterial({ color: this.config.skinTone, roughness: 0.75 })
+    );
+    eyelidLeft.name = 'eyelid-left';
+    eyelidLeft.position.set(-0.05, 0.05, 0.106);
+    eyelidLeft.rotation.z = 0.08;
+    this.root.add(eyelidLeft);
+
+    const eyelidRight = eyelidLeft.clone();
+    eyelidRight.name = 'eyelid-right';
+    eyelidRight.position.x = 0.05;
+    eyelidRight.rotation.z = -0.08;
+    this.root.add(eyelidRight);
+
+    const nose = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.016, 0.072, 8, 12),
+      new THREE.MeshStandardMaterial({ color: this.config.skinTone, roughness: 0.8 })
+    );
+    nose.name = 'nose-part';
+    nose.rotation.x = Math.PI / 2;
+    nose.position.set(0, -0.012, 0.148);
+    nose.scale.set(0.95, 0.98, 1.1);
+    this.root.add(nose);
+
+    // Mouth: a mouth-root group owning separate upper/lower lip meshes so the
+    // feature is clearly visible and parameterizable. The lip shape is a
+    // unit-radius sphere scaled into a rounded lip form at apply() time
+    // (deterministic from baseline + current parameters).
+    const lipMaterial = new THREE.MeshStandardMaterial({ color: 0xc1615f, roughness: 0.75 });
+    const lipGeometry = new THREE.SphereGeometry(1, 20, 14);
+
+    const upperLip = new THREE.Mesh(lipGeometry.clone(), lipMaterial);
+    upperLip.name = 'mouth-upper-lip';
+    upperLip.castShadow = false;
+    const lowerLip = new THREE.Mesh(lipGeometry.clone(), lipMaterial);
+    lowerLip.name = 'mouth-lower-lip';
+    lowerLip.castShadow = false;
+
+    const mouthRoot = new THREE.Group();
+    mouthRoot.name = 'mouth-part';
+    mouthRoot.position.set(0, -0.12, 0.124);
+    // Baseline lip rest positions/scale (relative to mouth-root). All runtime
+    // transforms are derived from these baselines + the current parameters.
+    upperLip.position.set(0, 0.006, 0.0);
+    upperLip.scale.set(0.034, 0.0075, 0.011);
+    lowerLip.position.set(0, -0.0055, 0.0);
+    lowerLip.scale.set(0.03, 0.0085, 0.011);
+    mouthRoot.add(upperLip, lowerLip);
+    this.root.add(mouthRoot);
+
+    this.faceParts.head = head;
+    this.faceParts.jaw = jaw;
+    this.faceParts.cheeks.left = cheekLeft;
+    this.faceParts.cheeks.right = cheekRight;
+    this.faceParts.eyes.left.white = eyeLeft;
+    this.faceParts.eyes.left.iris = irisLeft;
+    this.faceParts.eyes.left.eyelid = eyelidLeft;
+    this.faceParts.eyes.right.white = eyeRight;
+    this.faceParts.eyes.right.iris = irisRight;
+    this.faceParts.eyes.right.eyelid = eyelidRight;
+    this.faceParts.brows.left = browLeft;
+    this.faceParts.brows.right = browRight;
+    this.faceParts.nose = nose;
+    this.faceParts.mouth = mouthRoot;
+    this.faceParts.mouthUpper = upperLip;
+    this.faceParts.mouthLower = lowerLip;
+    this.faceParts.hairRoot = this.hairRoot ?? new THREE.Group();
+
+    [
+      head,
+      jaw,
+      cheekLeft,
+      cheekRight,
+      eyeLeft,
+      eyeRight,
+      irisLeft,
+      irisRight,
+      browLeft,
+      browRight,
+      eyelidLeft,
+      eyelidRight,
+      nose,
+      mouthRoot,
+      upperLip,
+      lowerLip,
+    ].forEach((part) => this.captureBaseline(part));
+
+    this.addHair();
+    if (this.hairRoot) {
+      this.faceParts.hairRoot = this.hairRoot;
+      this.captureBaseline(this.hairRoot);
+    }
+    console.warn('[Face] fallback head built');
+    this.debugObjectState('fallback head created');
+  }
+
+  private getSkullMetrics() {
+    const headPart = this.root.getObjectByName('head-part') as THREE.Mesh | undefined;
+    const headScale = headPart?.scale ?? new THREE.Vector3(1.12, 1.34, 1.06);
+    const center = headPart?.position ?? new THREE.Vector3(0, 0.04, 0);
+    const width = 0.32 * headScale.x;
+    const height = 0.44 * headScale.y;
+    const depth = 0.32 * headScale.z;
+
+    return {
+      width,
+      height,
+      depth,
+      center,
+      topY: center.y + height * 0.48,
+      frontZ: center.z + depth * 0.42,
+      backZ: center.z - depth * 0.56,
+    };
+  }
+
+  private createHairCap(material: THREE.MeshStandardMaterial, options: { thin?: boolean } = {}) {
+    const metrics = this.getSkullMetrics();
+    const cap = new THREE.Group();
+    cap.name = 'hair-cap';
+
+    const shell = new THREE.Mesh(
+      new THREE.SphereGeometry(metrics.width * 0.5, 24, 18, 0, Math.PI * 2, 0.2, 1.1),
+      material
+    );
+    shell.name = 'hair-cap-shell';
+    shell.scale.set(1.0, options.thin ? 0.65 : 0.8, 1.04);
+    shell.position.set(
+      metrics.center.x,
+      metrics.center.y + metrics.height * 0.1,
+      metrics.center.z - metrics.depth * 0.02
+    );
+    cap.add(shell);
+
+    const front = new THREE.Mesh(
+      new THREE.SphereGeometry(metrics.width * 0.26, 18, 12, 0, Math.PI * 2, 0.2, 0.88),
+      material
+    );
+    front.name = 'hair-cap-front';
+    front.scale.set(1.1, 0.45, 0.7);
+    front.position.set(
+      0,
+      metrics.topY - metrics.height * 0.18,
+      metrics.frontZ - metrics.depth * 0.08
+    );
+    cap.add(front);
+
+    const left = new THREE.Mesh(
+      new THREE.SphereGeometry(metrics.width * 0.18, 18, 12, 0, Math.PI * 2, 0.18, 0.8),
+      material
+    );
+    left.name = 'hair-cap-left';
+    left.scale.set(0.86, 0.56, 0.86);
+    left.position.set(-metrics.width * 0.56, metrics.center.y + metrics.height * 0.12, 0.0);
+    cap.add(left);
+
+    const right = left.clone();
+    right.name = 'hair-cap-right';
+    right.position.x = metrics.width * 0.56;
+    cap.add(right);
+
+    return cap;
+  }
+
+  private createPonytail(material: THREE.MeshStandardMaterial) {
+    const metrics = this.getSkullMetrics();
+    const cap = this.createHairCap(material, { thin: false });
+    cap.name = 'hair-ponytail-cap';
+
+    const gather = new THREE.Mesh(
+      new THREE.SphereGeometry(Math.max(0.024, metrics.width * 0.14), 16, 12),
+      material
+    );
+    gather.name = 'hair-ponytail-gather';
+    gather.position.set(
+      metrics.center.x,
+      metrics.center.y + metrics.height * 0.18,
+      metrics.center.z - metrics.depth * 0.52
+    );
+
+    const tailMaterial = material.clone();
+    tailMaterial.color = material.color.clone();
+
+    const base = gather.position.clone();
+    const midBack = base.clone().add(new THREE.Vector3(0, -0.08, -0.1));
+    const midDown = base.clone().add(new THREE.Vector3(0, -0.24, -0.18));
+    const end = base.clone().add(new THREE.Vector3(0, -0.44, -0.3));
+
+    const curveA = new THREE.CatmullRomCurve3([base, midBack, midDown, end]);
+    const segA = new THREE.Mesh(new THREE.TubeGeometry(curveA, 14, 0.028, 8, false), tailMaterial);
+    segA.name = 'hair-ponytail-tail-a';
+
+    const curveB = new THREE.CatmullRomCurve3([
+      end.clone().add(new THREE.Vector3(0, -0.02, 0.02)),
+      end.clone().add(new THREE.Vector3(0, -0.12, -0.04)),
+      end.clone().add(new THREE.Vector3(0, -0.26, -0.1)),
+      end.clone().add(new THREE.Vector3(0, -0.38, -0.18)),
+    ]);
+    const segB = new THREE.Mesh(new THREE.TubeGeometry(curveB, 12, 0.02, 8, false), tailMaterial);
+    segB.name = 'hair-ponytail-tail-b';
+
+    const tailRoot = new THREE.Group();
+    tailRoot.name = 'hair-ponytail-tail';
+    tailRoot.add(segA, segB);
+
+    return { cap, gather, tail: tailRoot };
+  }
+
+  private addHair() {
+    if (this.hairRoot) {
+      this.hairRoot.removeFromParent();
+    }
+    // Remove any leaked ears/sideburns from the previous build (they are
+    // parented to the face root, not hair-root, so hair-root removal does not
+    // catch them).
+    ['ear-left', 'ear-right', 'sideburn-left', 'sideburn-right'].forEach((n) => {
+      const old = this.root.getObjectByName(n);
+      if (old) old.removeFromParent();
+    });
+
+    const hairRoot = new THREE.Group();
+    hairRoot.name = 'hair-root';
+    this.root.add(hairRoot);
+    this.hairRoot = hairRoot;
+
+    const hairStyle = this.normalizeHairStyle(this.config.hairStyle);
+    const hairMaterial = new THREE.MeshStandardMaterial({
+      color: this.config.hairColor,
+      roughness: 0.94,
+      metalness: 0.04,
+    });
+
+    if (hairStyle === 'bald') {
+      console.log('[procedural hair]', {
+        style: hairStyle,
+        children: hairRoot.children.map((child) => ({
+          name: child.name,
+          position: child.position.toArray(),
+          scale: child.scale.toArray(),
+        })),
+      });
+      return;
+    }
+
+    if (hairStyle === 'buzzCut') {
+      const metrics = this.getSkullMetrics();
+      const sbLen = this.advancedValue('sideburnLength');
+      const sbWidth = this.advancedValue('sideburnWidth');
+      const earSize = this.advancedValue('earSize');
+      const backLen = this.advancedValue('backHairLength');
+
+      // THREE-PART HAIR ARCHITECTURE (default male Buzz Cut):
+      //   hair-crown       -> forehead hairline, top of head, crown (CLOSED top)
+      //   hair-back        -> rear skull coverage, crown->back transition
+      //   hair-side-left/right -> temple/sideburn coverage (mirrored pair)
+      // All are children of hair-root so the whole hairstyle follows the head.
+      // Each is sized/positioned from getSkullMetrics() so the fitted baseline
+      // conforms to the head shell, and each baseline is captured for
+      // deterministic slider-driven transforms (no cumulative drift).
+
+      // 1) CROWN: a closed cap over the top of the skull. phiStart 0 (pole)
+      //    closes the top; phiLength sweeps down to the hairline. Slightly
+      //    larger radius + wider sweep so it overlaps the back piece (no seam).
+      const crown = new THREE.Mesh(
+        new THREE.SphereGeometry(metrics.width * 0.44, 22, 16, 0, Math.PI * 2, 0, 1.34),
+        hairMaterial
+      );
+      crown.name = 'hair-crown';
+      crown.scale.set(1.0, 0.82, 0.98);
+      crown.position.set(
+        metrics.center.x,
+        metrics.center.y + metrics.height * 0.1,
+        metrics.center.z - metrics.depth * 0.02
+      );
+      hairRoot.add(crown);
+
+      // 2) BACK: rear skull coverage. A squashed sphere cap hugging the back of
+      //    the head; its top overlaps the crown's rear edge so they stay
+      //    connected. backHairLength controls how far down the back it reaches.
+      const back = new THREE.Mesh(
+        new THREE.SphereGeometry(metrics.width * 0.46, 18, 14),
+        hairMaterial
+      );
+      back.name = 'hair-back';
+      back.scale.set(0.94, 0.55 + 0.3 * Math.min(backLen, 2), 0.5);
+      back.position.set(
+        metrics.center.x,
+        metrics.center.y + metrics.height * 0.02 - backLen * 0.03,
+        metrics.center.z - metrics.depth * 0.34
+      );
+      hairRoot.add(back);
+
+      // 3) SIDES / SIDEBURNS: temple + sideburn coverage in front of the ears.
+      //    Mirrored pair; sideburnLength/Width control each strip. Parented to
+      //    hair-root so they move with the hairstyle but sit just outside the
+      //    skull, clear of the ears.
+      if (sbLen > 0.01 && sbWidth > 0.01) {
+        for (const side of [-1, 1]) {
+          const sb = new THREE.Mesh(
+            new THREE.CapsuleGeometry(0.014 * sbWidth, 0.05 * sbLen, 4, 8),
+            hairMaterial
+          );
+          sb.name = side < 0 ? 'hair-side-left' : 'hair-side-right';
+          sb.position.set(
+            metrics.center.x + side * metrics.width * 0.4,
+            metrics.center.y - metrics.height * 0.04,
+            metrics.center.z + metrics.depth * 0.16
+          );
+          hairRoot.add(sb);
+        }
+      }
+
+      // Ears: skin-toned, tucked against the head. prominence pushes them out
+      // (Z rotation-free: larger = stick out more), spacing moves them
+      // in/out along X, vertical moves them up/down.
+      const earProm = this.advancedValue('earProminence');
+      const earSpace = this.advancedValue('earSpacing');
+      const earVert = this.advancedValue('earVertical');
+      for (const side of [-1, 1]) {
+        const ear = new THREE.Mesh(
+          new THREE.SphereGeometry(0.035, 12, 10),
+          new THREE.MeshStandardMaterial({ color: this.config.skinTone, roughness: 0.75 })
+        );
+        ear.name = side < 0 ? 'ear-left' : 'ear-right';
+        ear.scale.set(0.32 * earSize, 0.6 * earSize, 0.4 * earSize * earProm);
+        ear.position.set(
+          metrics.center.x + side * metrics.width * 0.42 * earSpace,
+          metrics.center.y - metrics.height * 0.05 + earVert,
+          metrics.center.z + metrics.depth * 0.1
+        );
+        ear.castShadow = true;
+        // Parent to the face root (not hair-root) so hair Scale does not blow
+        // up the ears.
+        this.root.add(ear);
+      }
+
+      // Capture each hair child's baseline so apply() can re-derive transforms
+      // deterministically (crown height scales geometry, never translates).
+      hairRoot.children.forEach((child) => this.captureBaseline(child));
+
+      console.log('[procedural hair]', {
+        style: hairStyle,
+        children: hairRoot.children.map((child) => ({
+          name: child.name,
+          position: child.position.toArray(),
+          scale: child.scale.toArray(),
+        })),
+      });
+      return;
+    }
+
+    if (hairStyle === 'shortCrop') {
+      const cap = this.createHairCap(hairMaterial, { thin: false });
+      cap.name = 'hair-short-cap';
+      const top = new THREE.Mesh(new THREE.SphereGeometry(0.08, 18, 12), hairMaterial);
+      top.name = 'hair-short-top';
+      top.scale.set(1.2, 0.52, 0.9);
+      top.position.set(0, this.getSkullMetrics().topY - 0.02, 0.04);
+      hairRoot.add(cap, top);
+      console.log('[procedural hair]', {
+        style: hairStyle,
+        children: hairRoot.children.map((child) => ({
+          name: child.name,
+          position: child.position.toArray(),
+          scale: child.scale.toArray(),
+        })),
+      });
+      return;
+    }
+
+    if (hairStyle === 'ponytail') {
+      const ponytail = this.createPonytail(hairMaterial);
+      hairRoot.add(ponytail.cap, ponytail.gather, ponytail.tail);
+      console.log('[procedural hair]', {
+        style: hairStyle,
+        children: hairRoot.children.map((child) => ({
+          name: child.name,
+          position: child.position.toArray(),
+          scale: child.scale.toArray(),
+        })),
+      });
+      return;
+    }
+
+    if (hairStyle === 'undercut') {
+      const cap = this.createHairCap(hairMaterial, { thin: false });
+      cap.name = 'hair-undercut-cap';
+      const left = new THREE.Mesh(new THREE.SphereGeometry(0.06, 14, 12), hairMaterial);
+      left.name = 'hair-undercut-left';
+      left.scale.set(0.95, 0.56, 0.8);
+      left.position.set(-0.1, 0.05, 0.04);
+      const right = left.clone();
+      right.name = 'hair-undercut-right';
+      right.position.x = 0.1;
+      hairRoot.add(cap, left, right);
+      console.log('[procedural hair]', {
+        style: hairStyle,
+        children: hairRoot.children.map((child) => ({
+          name: child.name,
+          position: child.position.toArray(),
+          scale: child.scale.toArray(),
+        })),
+      });
+      return;
+    }
+
+    if (hairStyle === 'sidePart') {
+      const cap = this.createHairCap(hairMaterial, { thin: false });
+      cap.name = 'hair-sidepart-cap';
+      cap.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.name === 'hair-cap-shell') {
+          child.name = 'hair-sidepart-shell';
+        }
+        if (child instanceof THREE.Mesh && child.name === 'hair-cap-front') {
+          child.name = 'hair-sidepart-front';
+        }
+        if (child instanceof THREE.Mesh && child.name === 'hair-cap-left') {
+          child.name = 'hair-sidepart-left';
+        }
+        if (child instanceof THREE.Mesh && child.name === 'hair-cap-right') {
+          child.name = 'hair-sidepart-right';
+        }
+      });
+
+      const sweep = new THREE.Mesh(new THREE.SphereGeometry(0.09, 18, 12), hairMaterial);
+      sweep.name = 'hair-sidepart-sweep';
+      sweep.scale.set(1.2, 0.44, 0.9);
+      sweep.position.set(0.07, 0.08, 0.08);
+      sweep.rotation.z = -0.2;
+      hairRoot.add(cap, sweep);
+      console.log('[procedural hair]', {
+        style: hairStyle,
+        pieces: hairRoot.children.map((child) => child.name),
+      });
+      return;
+    }
+
+    const cap = this.createHairCap(hairMaterial, { thin: false });
+    cap.name = 'hair-cap';
+    hairRoot.add(cap);
+    console.log('[procedural hair]', {
+      style: hairStyle,
+      children: hairRoot.children.map((child) => ({
+        name: child.name,
+        position: child.position.toArray(),
+        scale: child.scale.toArray(),
+      })),
+    });
+  }
+
+  debugReport(label: string) {
+    if (!this.faceMesh) {
+      console.log(`[${label}] Face model pending`, {
+        visible: this.root.visible,
+        childCount: this.root.children.length,
+        children: this.root.children.map((child) => child.name || child.type),
+      });
+      return;
+    }
+    const names = Object.keys(this.faceMesh.morphTargetDictionary ?? {}).map((key) =>
+      key.replace('blendShape1.', '')
+    );
+    console.log(`[${label}] Face morph targets`, {
+      visible: this.root.visible,
+      childCount: this.root.children.length,
+      faceMeshName: this.faceMesh.name,
+      morphTargets: names.slice(0, 20),
+      morphTargetCount: names.length,
+    });
+  }
+
+  debugObjectState(label: string) {
+    const names = this.root.children.map((child) => child.name || child.type);
+    const payload = {
+      visible: this.root.visible,
+      childCount: this.root.children.length,
+      childNames: names,
+      hasFaceMesh: !!this.faceMesh,
+      faceMeshName: this.faceMesh?.name,
+      morphTargetCount: this.faceMesh
+        ? Object.keys(this.faceMesh.morphTargetDictionary ?? {}).length
+        : 0,
+    };
+    console.warn(`[${label}] Face root`, payload);
+    if (typeof window !== 'undefined') {
+      (window as Window & { __faceDebug?: Record<string, unknown> }).__faceDebug = {
+        ...(window as Window & { __faceDebug?: Record<string, unknown> }).__faceDebug,
+        last: payload,
+      };
+    }
+  }
+
+  private captureBaseline(object: THREE.Object3D) {
+    this.baselineTransforms.set(object, {
+      position: object.position.clone(),
+      rotation: object.rotation.clone(),
+      scale: object.scale.clone(),
+    });
+  }
+
+  private debugParameterUpdate(parameter: string, value: number, affectedObjects: string[]) {
+    console.info('[face parameter update]', {
+      parameter,
+      value,
+      affectedObjects,
+    });
+  }
+
+  setConfig(config: Partial<FaceConfig>) {
+    this.config = { ...this.config, ...config };
+    this.config.hairStyle = this.normalizeHairStyle(this.config.hairStyle);
+    (
+      [
+        'headScale',
+        'jawWidth',
+        'chinShape',
+        'brow',
+        'nose',
+        'eyeSpacing',
+        'eyeSize',
+        'mouth',
+        'beard',
+        'stubble',
+      ] as FaceParameterKey[]
+    ).forEach((key) => {
+      const value = this.config[key];
+      this.config[key] = clampFaceParameterValue(key, value);
+      if (typeof value === 'number') {
+        const affectedObjects = this.getAffectedObjectsForParameter(key as keyof FaceConfig);
+        this.debugParameterUpdate(key, this.config[key], affectedObjects);
+      }
+    });
+    this.apply();
+  }
+
+  updateFeature(
+    feature: keyof Pick<
+      FaceConfig,
+      | 'headScale'
+      | 'jawWidth'
+      | 'chinShape'
+      | 'brow'
+      | 'nose'
+      | 'eyeSpacing'
+      | 'eyeSize'
+      | 'mouth'
+      | 'beard'
+      | 'stubble'
+    >,
+    value: number
+  ) {
+    this.config[feature] = value;
+    this.debugParameterUpdate(feature, value, this.getAffectedObjectsForParameter(feature));
+    this.apply();
+  }
+
+  resetToPreset(preset: FacePresetId) {
+    this.config = { ...FACE_PRESETS[preset], preset };
+    this.debugParameterUpdate(
+      'preset-reset',
+      this.config.jawWidth,
+      this.getAffectedObjectsForParameter('jawWidth')
+    );
+    this.apply();
+  }
+
+  dispose() {
+    this.root.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+        const material = child.material;
+        if (Array.isArray(material)) {
+          material.forEach((entry) => entry.dispose());
+        } else {
+          material.dispose();
+        }
+      }
+    });
+    this.root.clear();
+  }
+
+  private applyMorph(name: string, value: number) {
+    if (!this.faceMesh || !this.faceMesh.morphTargetDictionary) {
+      return;
+    }
+
+    const dictionary = this.faceMesh.morphTargetDictionary;
+    const key = Object.keys(dictionary).find((entry) => {
+      const morphName = entry.replace('blendShape1.', '');
+      return morphName === name;
+    });
+
+    if (!key || this.faceMesh.morphTargetInfluences === undefined) {
+      return;
+    }
+
+    const index = dictionary[key];
+    if (typeof index === 'number') {
+      this.faceMesh.morphTargetInfluences[index] = value;
+    }
+  }
+
+  private getAffectedObjectsForParameter(parameter: keyof FaceConfig): string[] {
+    const mapping: Record<string, string[]> = {
+      headScale: ['head-part'],
+      jawWidth: ['jaw-part'],
+      chinShape: ['jaw-part'],
+      brow: ['brow-left', 'brow-right'],
+      nose: ['nose-part'],
+      eyeSpacing: [
+        'eye-white-left',
+        'iris-left',
+        'eyelid-left',
+        'eye-white-right',
+        'iris-right',
+        'eyelid-right',
+      ],
+      eyeSize: [
+        'eye-white-left',
+        'iris-left',
+        'eyelid-left',
+        'eye-white-right',
+        'iris-right',
+        'eyelid-right',
+      ],
+      mouth: ['mouth-part'],
+      beard: ['beard-part'],
+      stubble: ['stubble-part'],
+    };
+
+    return mapping[parameter as string] ?? [];
+  }
+
+  private getBaseline(object: THREE.Object3D) {
+    return (
+      this.baselineTransforms.get(object) ?? {
+        position: object.position.clone(),
+        rotation: object.rotation.clone(),
+        scale: object.scale.clone(),
+      }
+    );
+  }
+
+  private advancedValue(key: FaceAdvancedKey): number {
+    return this.config[key] ?? FACE_ADVANCED_DEFAULTS[key];
+  }
+
+  private resetToBaseline() {
+    for (const [object, baseline] of this.baselineTransforms) {
+      object.position.copy(baseline.position);
+      object.rotation.copy(baseline.rotation);
+      object.scale.copy(baseline.scale);
+    }
+  }
+
+  private apply() {
+    this.resetToBaseline();
+    (
+      [
+        'headScale',
+        'jawWidth',
+        'chinShape',
+        'brow',
+        'nose',
+        'eyeSpacing',
+        'eyeSize',
+        'mouth',
+        'beard',
+        'stubble',
+      ] as FaceParameterKey[]
+    ).forEach((key) => {
+      this.config[key] = clampFaceParameterValue(key, this.config[key]);
+    });
+
+    this.root.scale.setScalar(Math.max(0.2, this.config.headScale ?? 1));
+    const hairstyle = this.normalizeHairStyle(this.config.hairStyle);
+    this.config.hairStyle = hairstyle;
+    this.addHair();
+    if (this.hairRoot) {
+      this.faceParts.hairRoot = this.hairRoot;
+      if (!this.baselineTransforms.has(this.hairRoot)) {
+        this.captureBaseline(this.hairRoot);
+      }
+    }
+
+    const headPart = this.faceParts.head;
+    if (headPart) {
+      const headScaleFactor = 1.06 + (this.config.headScale - 1) * 0.5;
+      const headYFactor = 1.18 + (this.config.headScale - 1) * 0.52;
+      const headZFactor = 0.98 + (this.config.headScale - 1) * 0.3;
+      const baseX = this.getBaseline(headPart).scale.x;
+      const baseY = this.getBaseline(headPart).scale.y;
+      const baseZ = this.getBaseline(headPart).scale.z;
+      const macroX = (baseX * headScaleFactor) / 1.12;
+      const macroY = (baseY * headYFactor) / 1.34;
+      const macroZ = (baseZ * headZFactor) / 1.06;
+      const adv = {
+        width: this.advancedValue('headWidth'),
+        height: this.advancedValue('headHeight'),
+        depth: this.advancedValue('headDepth'),
+        posY: this.advancedValue('headPositionY'),
+        posZ: this.advancedValue('headPositionZ'),
+      };
+      headPart.scale.set(macroX * adv.width, macroY * adv.height, macroZ * adv.depth);
+      const basePos = this.getBaseline(headPart).position;
+      headPart.position.set(
+        basePos.x,
+        basePos.y + (this.config.headScale - 1) * 0.014 + adv.posY,
+        basePos.z + adv.posZ
+      );
+    }
+
+    const jaw = this.faceParts.jaw;
+    if (jaw) {
+      const jawLimit = FACE_PARAMETER_LIMITS.jawWidth;
+      const jawValue = clampFaceParameterValue('jawWidth', this.config.jawWidth);
+      const jawT =
+        jawValue >= jawLimit.default
+          ? (jawValue - jawLimit.default) / (jawLimit.max - jawLimit.default)
+          : (jawValue - jawLimit.default) / (jawLimit.default - jawLimit.min);
+      const wideT = Math.max(0, jawT);
+      const narrowT = Math.max(0, -jawT);
+
+      const jawScaleX = 1 + 0.22 * wideT - 0.3 * narrowT;
+      const jawScaleY = 1 + 0.06 * wideT - 0.1 * narrowT;
+      const jawScaleZ = 1 + 0.05 * wideT - 0.06 * narrowT;
+      const jawOffsetY = 0.008 * narrowT - 0.004 * wideT;
+
+      const chinScaleY =
+        1 + (this.config.chinShape - FACE_PARAMETER_LIMITS.chinShape.default) * 0.5;
+
+      const jawAdv = {
+        height: this.advancedValue('jawHeight'),
+        depth: this.advancedValue('jawDepth'),
+        posY: this.advancedValue('jawPositionY'),
+        posZ: this.advancedValue('jawPositionZ'),
+      };
+      const chinAdv = {
+        size: this.advancedValue('chinSize'),
+        width: this.advancedValue('chinWidth'),
+        height: this.advancedValue('chinHeight'),
+        depth: this.advancedValue('chinDepth'),
+        posY: this.advancedValue('chinPositionY'),
+        posZ: this.advancedValue('chinPositionZ'),
+      };
+
+      let resultScaleX = this.getBaseline(jaw).scale.x * jawScaleX * chinAdv.size * chinAdv.width;
+      if (headPart) {
+        const jawGeometry = jaw.geometry as THREE.SphereGeometry;
+        const headGeometry = headPart.geometry as THREE.SphereGeometry;
+        const jawRadius = jawGeometry.parameters?.radius ?? 0.118;
+        const headRadius = headGeometry.parameters?.radius ?? 0.16;
+        const maxJawScaleX = ((headRadius * headPart.scale.x) / jawRadius) * 0.85;
+        resultScaleX = Math.min(resultScaleX, maxJawScaleX);
+      }
+
+      const resultScaleY =
+        this.getBaseline(jaw).scale.y * chinScaleY * jawScaleY * jawAdv.height * chinAdv.height;
+      const resultScaleZ = this.getBaseline(jaw).scale.z * jawScaleZ * jawAdv.depth * chinAdv.depth;
+      const resultPosY =
+        this.getBaseline(jaw).position.y -
+        (this.config.chinShape - 1) * 0.03 +
+        jawOffsetY +
+        jawAdv.posY +
+        chinAdv.posY;
+
+      jaw.scale.set(resultScaleX, resultScaleY, resultScaleZ);
+      jaw.position.set(
+        this.getBaseline(jaw).position.x,
+        resultPosY,
+        this.getBaseline(jaw).position.z + jawAdv.posZ + chinAdv.posZ
+      );
+
+      if (this.lastJawDebugValue !== jawValue) {
+        this.lastJawDebugValue = jawValue;
+        console.warn('[JAW DEBUG]', {
+          value: jawValue,
+          normalizedValue: jawT,
+          baselineScale: this.getBaseline(jaw).scale.clone(),
+          resultingScale: jaw.scale.clone(),
+          baselinePosition: this.getBaseline(jaw).position.clone(),
+          resultingPosition: jaw.position.clone(),
+        });
+      }
+    }
+
+    const cheekLeft = this.faceParts.cheeks.left;
+    const cheekRight = this.faceParts.cheeks.right;
+    if (cheekLeft && cheekRight) {
+      const adv = {
+        size: this.advancedValue('cheekSize'),
+        width: this.advancedValue('cheekWidth'),
+        height: this.advancedValue('cheekHeight'),
+        depth: this.advancedValue('cheekDepth'),
+        spacing: this.advancedValue('cheekSpacing'),
+        posY: this.advancedValue('cheekPositionY'),
+        posZ: this.advancedValue('cheekPositionZ'),
+      };
+      const leftBaseline = this.getBaseline(cheekLeft);
+      const rightBaseline = this.getBaseline(cheekRight);
+      const spacingOffset = (adv.spacing - 1) * 0.05;
+
+      cheekLeft.scale.set(
+        leftBaseline.scale.x * adv.size * adv.width,
+        leftBaseline.scale.y * adv.size * adv.height,
+        leftBaseline.scale.z * adv.size * adv.depth
+      );
+      cheekRight.scale.set(
+        rightBaseline.scale.x * adv.size * adv.width,
+        rightBaseline.scale.y * adv.size * adv.height,
+        rightBaseline.scale.z * adv.size * adv.depth
+      );
+      cheekLeft.position.set(
+        leftBaseline.position.x - spacingOffset,
+        leftBaseline.position.y + adv.posY,
+        leftBaseline.position.z + adv.posZ
+      );
+      cheekRight.position.set(
+        rightBaseline.position.x + spacingOffset,
+        rightBaseline.position.y + adv.posY,
+        rightBaseline.position.z + adv.posZ
+      );
+    }
+
+    const eyeLeftWhite = this.faceParts.eyes.left.white;
+    const eyeRightWhite = this.faceParts.eyes.right.white;
+    if (eyeLeftWhite && eyeRightWhite) {
+      const eyeSizeValue = clampFaceParameterValue('eyeSize', this.config.eyeSize);
+      const eyeSpacingValue = clampFaceParameterValue('eyeSpacing', this.config.eyeSpacing);
+      const eyeAdv = {
+        width: this.advancedValue('eyeWidth'),
+        height: this.advancedValue('eyeHeight'),
+        depth: this.advancedValue('eyeDepth'),
+        posY: this.advancedValue('eyePositionY'),
+        posZ: this.advancedValue('eyePositionZ'),
+      };
+      const spacingStride = 0.052 + (1 - eyeSpacingValue) * 0.056;
+
+      const applyEyeAssembly = (
+        white: THREE.Mesh,
+        iris: THREE.Mesh | undefined,
+        eyelid: THREE.Mesh | undefined,
+        sideSign: 1 | -1
+      ) => {
+        const whiteBaseline = this.getBaseline(white);
+        const centerX = sideSign * spacingStride;
+        white.position.set(
+          centerX,
+          whiteBaseline.position.y + eyeAdv.posY,
+          whiteBaseline.position.z + eyeAdv.posZ
+        );
+        white.scale.set(
+          whiteBaseline.scale.x * eyeSizeValue * eyeAdv.width,
+          whiteBaseline.scale.y * eyeSizeValue * eyeAdv.height,
+          whiteBaseline.scale.z * eyeSizeValue * eyeAdv.depth
+        );
+
+        if (iris) {
+          const irisBaseline = this.getBaseline(iris);
+          iris.position.set(
+            white.position.x,
+            irisBaseline.position.y + eyeAdv.posY,
+            irisBaseline.position.z + eyeAdv.posZ
+          );
+          iris.scale.set(
+            irisBaseline.scale.x * eyeSizeValue * eyeAdv.width,
+            irisBaseline.scale.y * eyeSizeValue * eyeAdv.height,
+            irisBaseline.scale.z * eyeSizeValue * eyeAdv.depth
+          );
+        }
+
+        if (eyelid) {
+          const eyelidBaseline = this.getBaseline(eyelid);
+          eyelid.position.set(
+            white.position.x,
+            eyelidBaseline.position.y + eyeAdv.posY,
+            eyelidBaseline.position.z + eyeAdv.posZ
+          );
+          eyelid.scale.set(
+            eyelidBaseline.scale.x * eyeSizeValue * eyeAdv.width,
+            eyelidBaseline.scale.y * eyeSizeValue * eyeAdv.height,
+            eyelidBaseline.scale.z * eyeSizeValue * eyeAdv.depth
+          );
+        }
+      };
+
+      const irisLeft = this.faceParts.eyes.left.iris;
+      const irisRight = this.faceParts.eyes.right.iris;
+      const leftEyelid = this.faceParts.eyes.left.eyelid;
+      const rightEyelid = this.faceParts.eyes.right.eyelid;
+
+      applyEyeAssembly(eyeLeftWhite, irisLeft, leftEyelid, -1);
+      applyEyeAssembly(eyeRightWhite, irisRight, rightEyelid, 1);
+
+      if (this.lastEyeDebugValue !== eyeSizeValue) {
+        this.lastEyeDebugValue = eyeSizeValue;
+        console.warn('[EYE SIZE DEBUG]', {
+          value: eyeSizeValue,
+          spacing: eyeSpacingValue,
+          left: {
+            whiteScale: eyeLeftWhite.scale.clone(),
+            irisScale: irisLeft?.scale.clone(),
+            eyelidScale: leftEyelid?.scale.clone(),
+            whitePosition: eyeLeftWhite.position.clone(),
+            irisPosition: irisLeft?.position.clone(),
+          },
+          right: {
+            whiteScale: eyeRightWhite.scale.clone(),
+            irisScale: irisRight?.scale.clone(),
+            eyelidScale: rightEyelid?.scale.clone(),
+            whitePosition: eyeRightWhite.position.clone(),
+            irisPosition: irisRight?.position.clone(),
+          },
+          affectedObjects: [
+            'eye-white-left',
+            'iris-left',
+            'eyelid-left',
+            'eye-white-right',
+            'iris-right',
+            'eyelid-right',
+          ],
+        });
+      }
+    }
+
+    const browLeft = this.faceParts.brows.left;
+    const browRight = this.faceParts.brows.right;
+    if (browLeft && browRight) {
+      const brow = clampFaceParameterValue('brow', this.config.brow);
+      const browAdv = {
+        width: this.advancedValue('browWidth'),
+        thickness: this.advancedValue('browThickness'),
+        spacing: this.advancedValue('browSpacing'),
+        posY: this.advancedValue('browPositionY'),
+        angle: this.advancedValue('browAngle'),
+      };
+      const leftBaseline = this.getBaseline(browLeft);
+      const rightBaseline = this.getBaseline(browRight);
+      const browLift = 0.07 + (brow - 0.5) * 0.05;
+      const spacingOffset = (browAdv.spacing - 1) * 0.03;
+      const angleRad = (browAdv.angle * Math.PI) / 180;
+
+      browLeft.scale.set(
+        leftBaseline.scale.x * browAdv.width * (0.98 + brow * 0.52),
+        leftBaseline.scale.y * browAdv.thickness,
+        leftBaseline.scale.z
+      );
+      browRight.scale.set(
+        rightBaseline.scale.x * browAdv.width * (0.98 + brow * 0.52),
+        rightBaseline.scale.y * browAdv.thickness,
+        rightBaseline.scale.z
+      );
+      browLeft.position.set(
+        leftBaseline.position.x - spacingOffset,
+        browLift + browAdv.posY,
+        leftBaseline.position.z
+      );
+      browRight.position.set(
+        rightBaseline.position.x + spacingOffset,
+        browLift + browAdv.posY,
+        rightBaseline.position.z
+      );
+      browLeft.rotation.z = leftBaseline.rotation.z + angleRad;
+      browRight.rotation.z = rightBaseline.rotation.z - angleRad;
+
+      // 3-region brow shape: arch raises the CENTER segment; inner/outer height
+      // and forward/back move those segments independently. Mirrored per side so
+      // the normal face stays symmetric without editing each brow separately.
+      const arch = this.advancedValue('browArch'); // -1..1 raises/lowers center
+      const innerH = this.advancedValue('browInnerHeight');
+      const outerH = this.advancedValue('browOuterHeight');
+      const innerF = this.advancedValue('browInnerForward');
+      const outerF = this.advancedValue('browOuterForward');
+      [browLeft, browRight].forEach((brow) => {
+        const inner = brow.getObjectByName('brow-seg-inner');
+        const center = brow.getObjectByName('brow-seg-center');
+        const outer = brow.getObjectByName('brow-seg-outer');
+        if (center) center.position.y = arch * 0.02;
+        if (inner) {
+          inner.position.y = innerH * 0.2;
+          inner.position.z = innerF * 0.2;
+        }
+        if (outer) {
+          outer.position.y = outerH * 0.2;
+          outer.position.z = outerF * 0.2;
+        }
+      });
+    }
+
+    const nose = this.faceParts.nose;
+    if (nose) {
+      const noseSize = clampFaceParameterValue('nose', this.config.nose);
+      const noseAdv = {
+        width: this.advancedValue('noseWidth'),
+        height: this.advancedValue('noseHeight'),
+        depth: this.advancedValue('noseDepth'),
+        posY: this.advancedValue('nosePositionY'),
+        posZ: this.advancedValue('nosePositionZ'),
+      };
+      const baseline = this.getBaseline(nose);
+      nose.scale.set(
+        ((baseline.scale.x * (1.06 + noseSize * 0.92)) / 0.95) * noseAdv.width,
+        ((baseline.scale.y * (1.18 + noseSize * 1.06)) / 0.98) * noseAdv.height,
+        ((baseline.scale.z * (0.92 + (noseSize - 0.5) * 1.08)) / 1.1) * noseAdv.depth
+      );
+      nose.position.set(
+        baseline.position.x,
+        baseline.position.y + (noseSize - 0.5) * 0.03 + noseAdv.posY,
+        baseline.position.z + (noseSize - 0.5) * 0.08 + noseAdv.posZ
+      );
+    }
+
+    const mouthRoot = this.faceParts.mouth;
+    if (mouthRoot) {
+      const mouthSize = clampFaceParameterValue('mouth', this.config.mouth);
+      const mouthAdv = {
+        width: this.advancedValue('mouthWidth'),
+        height: this.advancedValue('mouthHeight'),
+        depth: this.advancedValue('mouthDepth'),
+        posY: this.advancedValue('mouthPositionY'),
+        posZ: this.advancedValue('mouthPositionZ'),
+        fullness: this.advancedValue('mouthFullness'),
+        cornerAngle: this.advancedValue('mouthCornerAngle'), // degrees
+        opening: this.advancedValue('mouthOpening'), // 0..1
+      };
+      const upper = this.faceParts.mouthUpper;
+      const lower = this.faceParts.mouthLower;
+      // Root: position (vertical / forward-back) + overall width/depth. Height
+      // and fullness affect the lips themselves, not the root placement.
+      const rootBaseline = this.getBaseline(mouthRoot);
+      const macroWidth = 1.06 + (mouthSize - 0.5) * 1.15;
+      const macroDepth = 1.0;
+      mouthRoot.position.set(
+        rootBaseline.position.x,
+        rootBaseline.position.y + mouthAdv.posY,
+        rootBaseline.position.z + mouthAdv.posZ
+      );
+      mouthRoot.scale.set(
+        rootBaseline.scale.x * macroWidth * mouthAdv.width,
+        rootBaseline.scale.y,
+        rootBaseline.scale.z * macroDepth * mouthAdv.depth
+      );
+      mouthRoot.rotation.set(0, 0, 0);
+
+      if (upper && lower) {
+        const ub = this.getBaseline(upper);
+        const lb = this.getBaseline(lower);
+        const full = mouthAdv.fullness;
+        const height = mouthAdv.height;
+        // Corner angle (degrees -> roll around the forward Z axis). Applied
+        // symmetrically: upper lip tilts one way, lower the other, so the
+        // corners rise/fall together as a smile/frown.
+        const cornerRad = THREE.MathUtils.degToRad(mouthAdv.cornerAngle);
+        // Opening: vertical separation between the lips.
+        const gap = mouthAdv.opening * 0.012;
+        const macroHeight = 0.86 + (mouthSize - 0.5) * 0.5;
+
+        upper.position.set(ub.position.x, ub.position.y + gap * 0.5, ub.position.z);
+        upper.rotation.set(0, 0, -cornerRad);
+        upper.scale.set(
+          ub.scale.x,
+          ub.scale.y * full * (0.6 + height * 0.4) * macroHeight,
+          ub.scale.z * full * (0.7 + height * 0.3)
+        );
+
+        lower.position.set(lb.position.x, lb.position.y - gap * 0.5, lb.position.z);
+        lower.rotation.set(0, 0, cornerRad);
+        lower.scale.set(
+          lb.scale.x,
+          lb.scale.y * full * (0.6 + height * 0.4) * macroHeight,
+          lb.scale.z * full * (0.7 + height * 0.3)
+        );
+      }
+    }
+
+    const hairRoot = this.faceParts.hairRoot;
+    if (hairRoot) {
+      const hairAdv = {
+        scale: this.advancedValue('hairScale'),
+        width: this.advancedValue('hairWidth'),
+        height: this.advancedValue('hairHeight'),
+        depth: this.advancedValue('hairDepth'),
+        posY: this.advancedValue('hairPositionY'),
+        posZ: this.advancedValue('hairPositionZ'),
+      };
+      const baseline = this.getBaseline(hairRoot);
+      // Keep the hair ROOT seated on the skull. Width/Depth/Scale resize the
+      // fitted baseline; Height grows the CROWN geometry (applied per-mesh
+      // below) rather than scaling the whole root about y=0 (which detached
+      // the cap). Vertical/Forward are small offsets from the fitted baseline,
+      // not free repositioning.
+      hairRoot.scale.set(
+        baseline.scale.x * hairAdv.scale * hairAdv.width,
+        baseline.scale.y * hairAdv.scale,
+        baseline.scale.z * hairAdv.scale * hairAdv.depth
+      );
+      hairRoot.position.set(
+        baseline.position.x,
+        baseline.position.y + hairAdv.posY,
+        baseline.position.z + hairAdv.posZ
+      );
+      // Per-region control: Crown/Back/Sides each get Width/Height/Depth on top
+      // of the global hair transform. Global Height grows the crown (and the
+      // back, slightly, for continuity); the per-region Height multiplies that
+      // further. All transforms derive from each child's captured baseline.
+      const crownH = hairAdv.height;
+      const region = {
+        'hair-crown': {
+          w: this.advancedValue('hairCrownWidth'),
+          h: this.advancedValue('hairCrownHeight'),
+          d: this.advancedValue('hairCrownDepth'),
+        },
+        'hair-back': {
+          w: this.advancedValue('hairBackWidth'),
+          h: this.advancedValue('hairBackHeight'),
+          d: this.advancedValue('hairBackDepth'),
+        },
+        'hair-side-left': {
+          w: this.advancedValue('hairSideWidth'),
+          h: this.advancedValue('hairSideHeight'),
+          d: this.advancedValue('hairSideDepth'),
+        },
+        'hair-side-right': {
+          w: this.advancedValue('hairSideWidth'),
+          h: this.advancedValue('hairSideHeight'),
+          d: this.advancedValue('hairSideDepth'),
+        },
+      } as Record<string, { w: number; h: number; d: number }>;
+      hairRoot.children.forEach((child) => {
+        if (!(child instanceof THREE.Mesh)) return;
+        const cb = this.getBaseline(child);
+        const r = region[child.name];
+        // Global crown-height baseline behavior (crown grows; back coordinates).
+        let globalY = 1;
+        if (child.name === 'hair-crown') globalY = crownH;
+        else if (child.name === 'hair-back') globalY = 1 + (crownH - 1) * 0.6;
+        const rx = r?.w ?? 1;
+        const ry = (r?.h ?? 1) * globalY;
+        const rz = r?.d ?? 1;
+        child.scale.set(cb.scale.x * rx, cb.scale.y * ry, cb.scale.z * rz);
+        child.position.copy(cb.position);
+
+        // GROW IN: one-sided/directional deformation. Anchor the TOP edge and
+        // extend the BOTTOM edge downward. Deterministic from baseline: reset
+        // position/scale from baseline first, then apply the growth offsets.
+        child.position.copy(cb.position);
+        const crownGrow = child.name === 'hair-crown' ? this.advancedValue('hairCrownGrowIn') : 1;
+        const backGrow = child.name === 'hair-back' ? this.advancedValue('hairBackGrowIn') : 1;
+        const grow =
+          child.name === 'hair-crown' ? crownGrow : child.name === 'hair-back' ? backGrow : 1;
+        // Crown also nudges forward as it grows over the forehead/temples.
+        if (child.name === 'hair-crown') {
+          child.position.z = cb.position.z + (crownGrow - 1) * 0.02;
+        }
+        if (grow !== 1) {
+          // Anchor the TOP edge. Mesh scaling happens about the local origin,
+          // so to keep the top vertex fixed we shift the position down by
+          // (g-1) * baselineTopLocalY. topLocal = geometryTop * baselineScaleY.
+          child.geometry.computeBoundingBox();
+          const topLocal = child.geometry.boundingBox!.max.y * cb.scale.y;
+          child.scale.y = cb.scale.y * ry * grow;
+          // top stays: pos' = pos - (g-1)*topLocal  =>  grows downward only.
+          child.position.y = cb.position.y - (grow - 1) * topLocal;
+        }
+      });
+    }
+
+    const beard = this.root.getObjectByName('beard-part');
+    if (beard instanceof THREE.Mesh) {
+      beard.visible = this.config.beard > 0.04;
+      beard.scale.set(
+        1.08 + this.config.beard * 0.9,
+        0.62 + this.config.beard * 1.3,
+        0.9 + this.config.beard * 0.45
+      );
+      beard.position.set(0, -0.116 - this.config.beard * 0.04, 0.032 + this.config.beard * 0.02);
+    }
+
+    const stubble = this.root.getObjectByName('stubble-part');
+    if (stubble instanceof THREE.Mesh) {
+      stubble.visible = this.config.stubble > 0.04;
+      stubble.scale.set(
+        1.04 + this.config.stubble * 0.9,
+        0.22 + this.config.stubble * 0.34,
+        0.9 + this.config.stubble * 0.3
+      );
+      stubble.position.set(
+        0,
+        -0.088 - this.config.stubble * 0.02,
+        0.092 + this.config.stubble * 0.02
+      );
+    }
+
+    if (!this.faceMesh || !this.faceMesh.morphTargetDictionary) {
+      return;
+    }
+
+    const browValue = Math.max(0, Math.min(1, this.config.brow ?? 0.5));
+    this.applyMorph('browInnerUp', browValue);
+    this.applyMorph('jawOpen', 0.12 * (this.config.jawWidth - 0.9));
+    this.applyMorph('mouthClose', 0.5);
+    this.applyMorph('mouthSmile_L', Math.max(0, this.config.mouth - 0.5));
+    this.applyMorph('mouthSmile_R', Math.max(0, this.config.mouth - 0.5));
+  }
+}
+
+export class Golfer {
+  readonly root = new THREE.Group();
+
+  private joints = new Map<JointName, THREE.Group>();
+  private attachPoints = new Map<string, THREE.Object3D>();
+  private disc!: THREE.Mesh;
+  private discVisible = false;
+  // Held disc is owned by the LEFT hand by default (reference correction).
+  private discHand: 'right' | 'left' = 'left';
+  private face!: Face;
+  public appearance: GolferAppearance;
+  private baseY = 0;
+  private look: GolferLook;
+
+  private playing = false;
+  private index = 0;
+  private elapsed = 0;
+  private releasing = false;
+  private avatarModelId: AvatarModelId = 'male';
+  private avatarModelRoot?: THREE.Group;
+  private avatarModelError?: THREE.Group;
+  private avatarModelLoading?: THREE.Group;
+  private avatarLoadToken = 0;
+  private onAvatarStatusChange?: (status: 'loading' | 'loaded' | 'error', message: string) => void;
+  private sequence = SEQUENCES.backhand;
+  private idleT = 0;
+  private idlePhase = Math.random() * 10;
+  private accessories = new Map<AccessorySlot, THREE.Group>();
+
+  constructor(look: GolferLook | PartialGolferAppearance = DEFAULT_LOOK) {
+    const input = (look as Partial<GolferLook> & PartialGolferAppearance) ?? {};
+    this.look = {
+      ...DEFAULT_LOOK,
+      ...input,
+      jersey: input.jersey ?? input.shirtColor ?? DEFAULT_LOOK.jersey,
+      accent: input.accent ?? input.accentColor ?? DEFAULT_LOOK.accent,
+      shorts: input.shorts ?? input.shortsColor ?? DEFAULT_LOOK.shorts,
+      skin: input.skin ?? input.skinTone ?? DEFAULT_LOOK.skin,
+      hair: input.hair ?? input.hairColor ?? DEFAULT_LOOK.hair,
+      hairStyle: input.hairStyle ?? DEFAULT_LOOK.hairStyle,
+      build: input.build ?? 1,
+    };
+    const normalized = this.normalizeAppearance(look as Partial<GolferAppearance>);
+    this.appearance = normalized;
+    this.avatarModelId = normalized.avatarModelId ?? 'none';
+    this.root.scale.setScalar(GOLFER_SCALE * (this.look.build ?? 1));
+    this.build();
+    this.applyProfileToRig();
+    this.applyPose(STAND_POSE, STAND_POSE, 0);
+    this.fitGarments();
+  }
+
+  private normalizeAppearance(input: PartialGolferAppearance): GolferAppearance {
+    const legacy = input as Partial<GolferLook> & Partial<GolferAppearance>;
+    const bodyProfile = legacy.bodyProfile ?? legacy.profile?.id ?? 'neutralLean';
+    const presetId = legacy.facePreset ?? (bodyProfile === 'athleticFemale' ? 'female' : 'male');
+    const facePreset = FACE_PRESETS[presetId] ?? FACE_PRESETS.male;
+    const profile = { ...BODY_PROFILES[bodyProfile], ...legacy.profile };
+    // Preserve the FULL outfit (belt width/buckle/tightness/vertical,
+    // sleeveWidth, etc.) so canonical overrides survive; the legacy top-level
+    // keys then fill any gaps from defaults.
+    const outfit = {
+      ...legacy.outfit,
+      sleeveLength: legacy.sleeveLength ?? legacy.outfit?.sleeveLength ?? 1,
+      collarHeight: legacy.collarHeight ?? legacy.outfit?.collarHeight ?? 1,
+      shirtFit: legacy.shirtFit ?? legacy.outfit?.shirtFit ?? 1,
+      shortsLength: legacy.shortsLength ?? legacy.outfit?.shortsLength ?? 1,
+      pantsFit: legacy.pantsFit ?? legacy.outfit?.pantsFit ?? 0.9,
+    };
+    const face = {
+      // Spread the FULL provided face first so advanced per-feature overrides
+      // (browArch, cheekSize, etc.) survive; the legacy macro keys then fill any
+      // gaps from the preset.
+      ...legacy.face,
+      brow: legacy.brow ?? legacy.face?.brow ?? facePreset.brow,
+      nose: legacy.nose ?? legacy.face?.nose ?? facePreset.nose,
+      eyeSpacing: legacy.eyeSpacing ?? legacy.face?.eyeSpacing ?? facePreset.eyeSpacing,
+      mouth: legacy.mouth ?? legacy.face?.mouth ?? facePreset.mouth,
+      beard: legacy.beard ?? legacy.face?.beard ?? facePreset.beard,
+      stubble: legacy.stubble ?? legacy.face?.stubble ?? facePreset.stubble,
+    };
+
+    const base = buildCharacterAppearance({
+      ...legacy,
+      bodyProfile,
+      profile,
+      facePreset: presetId,
+      face,
+      outfit,
+      skinTone: legacy.skinTone ?? legacy.skin ?? facePreset.skinTone,
+      hairStyle: (legacy.hairStyle as HairStyle) ?? facePreset.hairStyle,
+      hairColor: legacy.hairColor ?? legacy.hair ?? facePreset.hairColor,
+      shirtColor: legacy.shirtColor ?? legacy.jersey ?? JERSEY,
+      shortsColor: legacy.shortsColor ?? legacy.shorts ?? SHORTS,
+      shoeColor: legacy.shoeColor ?? SHOE,
+      accentColor: legacy.accentColor ?? legacy.accent ?? 0xd72638,
+      beltColor: legacy.beltColor,
+      buckleColor: legacy.buckleColor,
+      jerseyNumber: legacy.jerseyNumber ?? 1,
+      brow: face.brow,
+      nose: face.nose,
+      eyeSpacing: face.eyeSpacing,
+      mouth: face.mouth,
+      beard: face.beard,
+      stubble: face.stubble,
+      sleeveLength: outfit.sleeveLength,
+      collarHeight: outfit.collarHeight,
+      shirtFit: outfit.shirtFit,
+      shortsLength: outfit.shortsLength,
+      pantsFit: outfit.pantsFit,
+    });
+
+    return base;
+  }
+
+  private joint(name: JointName, parent: THREE.Object3D, position: THREE.Vector3): THREE.Group {
+    const group = new THREE.Group();
+    group.position.copy(position);
+    parent.add(group);
+    this.joints.set(name, group);
+    return group;
+  }
+
+  // CANONICAL GOLFER ORIENTATION
+  // Anatomical forward for this procedural rig is +Z (golfer-local).
+  // Established by the face: nose/eyes/mouth and the chest/placket all face +Z.
+  //   - head/face front  -> +Z
+  //   - chest/torso front -> +Z
+  //   - toes/shoes front  -> +Z
+  //   - knees front       -> +Z
+  // Gameplay rotates ONLY Golfer.root (see setHeading) to face the basket.
+  // Individual body parts are NEVER authored backwards to match a rear camera.
+  private build() {
+    const look = this.look;
+    this.root.clear();
+    this.joints.clear();
+    this.attachPoints.clear();
+    this.accessories.clear();
+
+    if (
+      this.avatarModelId !== 'none' &&
+      AVATAR_MODEL_URLS[this.avatarModelId as 'male' | 'female']
+    ) {
+      this.loadModelAvatar(this.avatarModelId as 'male' | 'female');
+      return;
+    }
+
+    const hips = this.joint('hips', this.root, new THREE.Vector3(0, 0.92, 0));
+
+    // SHORTS are CLOTHING, not the anatomical pelvis. `hips` remains the
+    // semantic pelvis joint; `shorts-root` is the garment root that follows the
+    // pelvis. The garment is organized into THREE semantic regions:
+    //   shorts-waist-root  -> upper shorts + waistband/belt + buckle (one assembly)
+    //   shorts-leg-left    -> left fabric leg
+    //   shorts-leg-right   -> right fabric leg
+    // Never map pose semantics onto shorts parts.
+    const shortsRoot = new THREE.Group();
+    shortsRoot.name = 'shorts-root';
+    hips.add(shortsRoot);
+    const shortsMat = () =>
+      new THREE.MeshStandardMaterial({ color: this.appearance.shortsColor, roughness: 0.78 });
+
+    // UPPER SHORTS ASSEMBLY: waist/hip covering + waistband + buckle share one
+    // garment coordinate system so the belt never floats independently.
+    const shortsWaistRoot = new THREE.Group();
+    shortsWaistRoot.name = 'shorts-waist-root';
+    shortsRoot.add(shortsWaistRoot);
+
+    // Upper shorts: a rounded section covering the pelvis/seat and rising up to
+    // meet the jersey (closes the skin gap at the waist). shortsLength scales
+    // how tall it reaches.
+    const shortsWaist = new THREE.Mesh(new THREE.SphereGeometry(0.19, 14, 12), shortsMat());
+    shortsWaist.name = 'shorts-upper-part';
+    shortsWaist.scale.set(1.18, 1.0, 0.94);
+    shortsWaist.position.set(0, 0.12, 0);
+    shortsWaist.castShadow = true;
+    shortsWaistRoot.add(shortsWaist);
+
+    // Short legs: fabric shells around the UPPER THIGH. Each leg follows its
+    // corresponding hip/thigh hierarchy instead of the rigid pelvis garment root,
+    // so independent hip out/in motion carries the matching shorts leg.
+    for (const side of [-1, 1]) {
+      const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.108, 0.22, 6, 12), shortsMat());
+      leg.name = side < 0 ? 'shorts-leg-left' : 'shorts-leg-right';
+      leg.position.set(side * 0.11, -0.16, 0);
+      leg.castShadow = true;
+      // Re-parent after the anatomical hip joints exist so each shorts leg tracks
+      // only its own leg/hip motion while the waist/seat stays on the pelvis.
+      leg.userData.__shortsSide = side;
+      shortsRoot.add(leg);
+    }
+
+    // ANATOMICAL PELVIS — BODY geometry, NOT clothing. This is the missing
+    // WAIST → HIPS transition: it flares from the finalized waist bottom
+    // (Waist Width/Depth) outward to the anatomical hip line (Hip Width/Depth).
+    // Parented to the `hips` joint so it moves with the pelvis. Skin material.
+    // Rebuilt deterministically in applyProfileToRig. The shorts garment is
+    // separate and must never substitute for this anatomical body geometry.
+    const pelvisBody = new THREE.Mesh(
+      makeWaistGeometry(0.19, 0.19, 0.19 * 0.76, 0.19 * 0.76, 0.16),
+      new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.78 })
+    );
+    pelvisBody.name = 'pelvis-body-part';
+    pelvisBody.position.set(0, -0.06, 0);
+    pelvisBody.castShadow = true;
+    hips.add(pelvisBody);
+
+    // ANATOMICAL HIP MASSES — BODY geometry, NOT clothing. Subtle rounded
+    // volumes centered on the anatomical hip sockets (hipL/hipR) that bridge
+    // the central pelvis into the thighs. They overlap the central pelvis and
+    // the top of each thigh intentionally so there are no visible gaps. Skin
+    // material; ANATOMY (visible in Body Only). Width/depth respond to
+    // hipWidth/hipDepth; scaled in applyProfileToRig.
+    const hipMat = () =>
+      new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.78 });
+    for (const side of [-1, 1]) {
+      const hipMass = new THREE.Mesh(new THREE.SphereGeometry(0.11, 14, 12), hipMat());
+      hipMass.name = side < 0 ? 'pelvis-hip-left' : 'pelvis-hip-right';
+      // Centered on the anatomical hip socket (hipL/hipR local x=±0.11,
+      // y=-0.12). Slightly overlapping the central pelvis (y) and the thigh
+      // top so the chain reads continuous. Flattened front/back for a subtle
+      // hip rather than a ball.
+      hipMass.position.set(side * 0.11, -0.1, 0.0);
+      hipMass.scale.set(1.0, 0.9, 0.8);
+      hipMass.castShadow = true;
+      hips.add(hipMass);
+    }
+
+    const torso = this.joint('torso', hips, new THREE.Vector3(0, 0.02, 0));
+    // UPPER CHEST / RIBCAGE ONLY. Short capsule high on the torso. Shortened
+    // (length 0.16) so its bottom meets the abdomen near the ribcage line with
+    // a thin seam instead of a deep overlap. Chest Width controls the ribcage.
+    const chest = limb(0.16, 0.19, this.appearance.shirtColor);
+    chest.name = 'torso-part';
+    chest.material = createJerseyMaterial(this.appearance);
+    chest.geometry.translate(0, 0.42, 0);
+    chest.scale.set(0.98, 1, 0.76);
+    torso.add(chest);
+
+    // WAIST / ABDOMEN: a frustum (top radius ≠ bottom radius) forming the
+    // CHEST → WAIST taper. Top radius follows chestWidth/chestDepth; bottom
+    // follows lowerTorsoWidth/lowerTorsoDepth (Waist). Radii are baked into the
+    // geometry (mesh.scale can't taper top vs bottom). Shortened to 0.24 so the
+    // abdomen no longer reads as a long cylinder; rebuilt in applyProfileToRig.
+    const lowerTorso = new THREE.Mesh(
+      makeWaistGeometry(0.19, 0.19, 0.19 * 0.76, 0.19 * 0.76, 0.24),
+      createJerseyMaterial(this.appearance)
+    );
+    lowerTorso.name = 'lower-torso-part';
+    lowerTorso.position.set(0, 0.14, 0);
+    lowerTorso.castShadow = true;
+    torso.add(lowerTorso);
+
+    const accentColor = this.appearance.accentColor ?? look.accent ?? DEFAULT_LOOK.accent;
+    const collar = limb(0.1, 0.185, accentColor);
+    collar.name = 'collar-part';
+    collar.geometry.translate(0, 0.78, 0);
+    collar.scale.set(1.0, 1, 0.74);
+    torso.add(collar);
+
+    // The former placket-part was a purely decorative floating red bar in front
+    // of the chest. It has been REMOVED (not merely moved) per the m600 fix;
+    // the jersey body/collar remain intact.
+
+    // Jersey hem / belt: a ring at the waist plus a front buckle. Belt params
+    // (outfit) control band thickness/width/vertical position and buckle size.
+    // The belt uses the SECONDARY (shorts) brand color. Tube radius is driven
+    // by beltThickness via geometry so it actually thickens.
+    const beltT = this.appearance.outfit?.beltThickness ?? 1;
+    const beltW = this.appearance.outfit?.beltWidth ?? 1;
+    const beltV = this.appearance.outfit?.beltVertical ?? 0;
+    const buckleS = this.appearance.outfit?.beltBuckle ?? 1;
+    const beltColor = this.appearance.beltColor ?? this.appearance.shortsColor; // secondary slot default
+    const beltTightness = this.appearance.outfit?.beltTightness ?? 1;
+
+    // Belt/waistband belongs to the SHORTS WAIST ASSEMBLY, not the torso — so
+    // the belt sits on the shorts and never floats independently of them. The
+    // root group carries the ring + buckle so both share width/vertical
+    // transforms and never detach. The ring is rotated flat; the buckle is a
+    // sibling (not a child of the ring) so it isn't tipped by the ring's rotation.
+    const beltRoot = new THREE.Group();
+    beltRoot.name = 'belt-root';
+    beltRoot.position.set(0, 0.04 + beltV, 0);
+    // Z-scale 1.0 (not flattened like the chest) so the belt ring sits PROUD of
+    // the shorts at the waist — belt in front of shorts.
+    beltRoot.scale.set(beltW, 1.0, 1);
+    shortsWaistRoot.add(beltRoot);
+
+    // Ring radius scales with beltTightness (smaller = snugger to the body).
+    const hem = new THREE.Mesh(
+      new THREE.TorusGeometry(0.24 * beltTightness, 0.028 * beltT, 10, 20),
+      new THREE.MeshStandardMaterial({ color: beltColor, roughness: 0.8 })
+    );
+    hem.name = 'jersey-hem';
+    hem.rotation.x = Math.PI / 2;
+    hem.castShadow = true;
+    beltRoot.add(hem);
+
+    // Belt buckle: a small box at the front edge of the ring (radius 0.2 + tube).
+    const buckle = new THREE.Mesh(
+      new THREE.BoxGeometry(0.07 * buckleS, 0.05 * buckleS, 0.02),
+      new THREE.MeshStandardMaterial({
+        color: this.appearance.buckleColor ?? 0xc8ccd4,
+        roughness: 0.4,
+        metalness: 0.6,
+      })
+    );
+    buckle.name = 'belt-buckle';
+    buckle.position.set(0, 0, 0.24 * beltTightness + 0.028 * beltT);
+    beltRoot.add(buckle);
+
+    const neck = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.062, 0.07, 0.1, 10),
+      new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.75 })
+    );
+    neck.name = 'neck-part';
+    neck.position.set(
+      0,
+      0.74 * this.appearance.profile.neckVertical,
+      this.appearance.profile.neckForward
+    );
+    torso.add(neck);
+
+    // Stylized neck→shoulder (trapezius) transition: a skin-toned squashed
+    // dome that fills the gap between the thin neck cylinder and the
+    // shoulders/chest. Visible geometry only — NOT a joint.
+    const trapezius = new THREE.Mesh(
+      new THREE.SphereGeometry(0.15, 14, 12),
+      new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.75 })
+    );
+    trapezius.name = 'trapezius-part';
+    trapezius.scale.set(1.9, 0.55, 0.9);
+    trapezius.position.set(0, 0.66, 0.0);
+    trapezius.castShadow = true;
+    torso.add(trapezius);
+
+    const head = this.joint('head', torso, new THREE.Vector3(0, 0.78, 0));
+    const faceConfig: FaceConfig = {
+      preset: this.appearance.facePreset ?? 'neutral',
+      skinTone: this.appearance.skinTone,
+      hairColor: this.appearance.hairColor,
+      hairStyle: this.appearance.hairStyle,
+      headScale: this.appearance.profile.headScale,
+      jawWidth: this.appearance.profile.jawWidth,
+      chinShape: this.appearance.profile.chinShape,
+      ...FACE_ADVANCED_DEFAULTS,
+      ...this.appearance.face,
+    };
+    this.face = new Face(faceConfig);
+    head.add(this.face.root);
+    this.root.userData.hairRoot = this.face.root.getObjectByName('hair-root') as
+      THREE.Group | undefined;
+    this.root.userData.faceRoot = this.face.root;
+    this.attachPoints.set('head', head);
+
+    const backPoint = new THREE.Group();
+    backPoint.position.set(0, 0.1, -0.17);
+    torso.add(backPoint);
+    this.attachPoints.set('back', backPoint);
+
+    // Uniform LOGO attachment slots (transform nodes, no visible geometry).
+    // A Team's branding supplies the logo asset; the uniform just exposes
+    // where logos anchor. Empty slot = no logo (never a broken texture).
+    const chestPrimaryLogo = new THREE.Group();
+    chestPrimaryLogo.name = 'chestPrimaryLogo';
+    chestPrimaryLogo.position.set(0, 0.5, 0.17);
+    torso.add(chestPrimaryLogo);
+    this.attachPoints.set('chestPrimaryLogo', chestPrimaryLogo);
+
+    const chestSecondaryLogo = new THREE.Group();
+    chestSecondaryLogo.name = 'chestSecondaryLogo';
+    chestSecondaryLogo.position.set(0.12, 0.3, 0.17);
+    torso.add(chestSecondaryLogo);
+    this.attachPoints.set('chestSecondaryLogo', chestSecondaryLogo);
+
+    for (const side of [1, -1] as const) {
+      const isRight = side === 1;
+      const shoulderName: JointName = isRight ? 'shoulderR' : 'shoulderL';
+      const elbowName: JointName = isRight ? 'elbowR' : 'elbowL';
+      // Shoulder pivot at the anatomical shoulder line: upper corner of the
+      // torso (torso local top y=0.62, half-width ~0.19). Pivot sits AT torso
+      // top, slightly inside the silhouette so the arm reads as attached.
+      const shoulder = this.joint(shoulderName, torso, new THREE.Vector3(side * 0.32, 0.6, 0));
+      // Jersey sleeve: a tube covering shoulder -> partway down the upper arm,
+      // using the jersey (shirt) material so it reads as the shirt's sleeve.
+      // sleeveLength (outfit) scales how far down the arm it reaches.
+      const sleeve = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.09, 0.14, 6, 12),
+        createJerseyMaterial(this.appearance)
+      );
+      sleeve.name = isRight ? 'sleeve-right' : 'sleeve-left';
+      sleeve.geometry.translate(0, -0.09, 0);
+      // Keep the sleeve close to the shoulder socket while letting the jersey
+      // shoulder cap handle the torso transition. This avoids the oversized
+      // horizontal pad look without moving the anatomical pivot.
+      sleeve.position.set(side * 0.065, -0.025, 0);
+      sleeve.rotation.z = side * -0.18;
+      sleeve.castShadow = true;
+      shoulder.add(sleeve);
+
+      // JERSEY SHOULDER CAP: a modest rounded shoulder cap attached to the
+      // existing anatomical socket. Smaller and slightly tapered to read like a
+      // normal athletic jersey shoulder instead of a broad shoulder pad.
+      const shoulderCap = new THREE.Mesh(
+        new THREE.SphereGeometry(0.12, 16, 12),
+        createJerseyMaterial(this.appearance)
+      );
+      shoulderCap.name = isRight ? 'jersey-shoulder-right' : 'jersey-shoulder-left';
+      shoulderCap.scale.set(0.88, 0.72, 0.88);
+      shoulderCap.position.set(side * 0.07, -0.02, 0);
+      shoulderCap.rotation.z = side * -0.18;
+      shoulderCap.castShadow = true;
+      shoulder.add(shoulderCap);
+
+      // Upper arm spans SHOULDER -> ELBOW exactly (top at pivot, bottom at elbow).
+      const upperArm = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.082, 0.28, 6, 12),
+        new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.78 })
+      );
+      upperArm.name = isRight ? 'upper-arm-right' : 'upper-arm-left';
+      upperArm.geometry.translate(0, -0.22, 0);
+      upperArm.castShadow = true;
+      shoulder.add(upperArm);
+
+      const elbow = this.joint(elbowName, shoulder, new THREE.Vector3(0, -0.44, 0));
+      // Forearm spans ELBOW -> WRIST exactly.
+      const forearm = limb(0.3, 0.072, this.appearance.skinTone);
+      forearm.name = isRight ? 'forearm-right' : 'forearm-left';
+      elbow.add(forearm);
+
+      // Stylized HAND: palm + grouped fingers + thumb, all skin-toned, plus a
+      // non-visible discGrip attachment node. Neutral = relaxed open hand; no
+      // fist/grip posing here (grips are Pose data, later).
+      const handGroup = new THREE.Group();
+      handGroup.name = isRight ? 'hand-right' : 'hand-left';
+      handGroup.position.y = -0.44;
+      elbow.add(handGroup);
+
+      const palm = new THREE.Mesh(
+        new THREE.SphereGeometry(0.075, 12, 10),
+        new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.75 })
+      );
+      palm.name = isRight ? 'palm-right' : 'palm-left';
+      palm.scale.set(0.95, 1.0, 0.6);
+      palm.position.y = -0.02;
+      palm.castShadow = true;
+      handGroup.add(palm);
+
+      // Grouped four fingers (one geometry, relaxed slight curl).
+      const fingers = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.045, 0.09, 4, 10),
+        new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.75 })
+      );
+      fingers.name = isRight ? 'fingers-right' : 'fingers-left';
+      fingers.scale.set(1.1, 1, 0.7);
+      fingers.position.set(0, -0.13, 0.01);
+      fingers.rotation.x = -0.25;
+      fingers.castShadow = true;
+      handGroup.add(fingers);
+
+      // Thumb: separate geometry, mirrored left/right, attaches to palm side.
+      const thumb = new THREE.Mesh(
+        new THREE.CapsuleGeometry(0.03, 0.07, 4, 8),
+        new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.75 })
+      );
+      thumb.name = isRight ? 'thumb-right' : 'thumb-left';
+      thumb.position.set(-side * 0.075, -0.05, 0.03);
+      thumb.rotation.z = side * 0.7;
+      thumb.castShadow = true;
+      handGroup.add(thumb);
+
+      // Semantic held-disc attachment node (no visible geometry). Follows the
+      // hand automatically through the hierarchy.
+      const discGrip = new THREE.Group();
+      discGrip.name = isRight ? 'rightDiscGrip' : 'leftDiscGrip';
+      discGrip.position.set(0, -0.12, 0.04);
+      handGroup.add(discGrip);
+      if (isRight) {
+        this.attachPoints.set('rightHand', discGrip);
+      } else {
+        this.attachPoints.set('leftHand', discGrip);
+      }
+
+      const hipName: JointName = isRight ? 'hipR' : 'hipL';
+      const kneeName: JointName = isRight ? 'kneeR' : 'kneeL';
+
+      const hip = this.joint(hipName, hips, new THREE.Vector3(side * 0.11, -0.12, 0));
+      const shortsLeg = this.root.getObjectByName(isRight ? 'shorts-leg-right' : 'shorts-leg-left');
+      if (shortsLeg && shortsLeg.parent !== hip) {
+        hip.add(shortsLeg);
+        shortsLeg.position.set(side * 0.11, -0.16, 0);
+      }
+      // HIP CAP: a small skin volume at the hip socket that overlaps the pelvis
+      // above and the thigh top below. It rotates WITH the thigh (parented to the
+      // hip joint), so it covers the mechanical seam during hip articulation —
+      // the ball-and-socket visual cover. Sized to bridge the gap, not a bulge.
+      const hipCap = new THREE.Mesh(
+        new THREE.SphereGeometry(0.12, 14, 12),
+        new THREE.MeshStandardMaterial({ color: this.appearance.skinTone, roughness: 0.78 })
+      );
+      hipCap.name = isRight ? 'hip-cap-right' : 'hip-cap-left';
+      hipCap.position.set(0, 0.0, 0);
+      hipCap.scale.set(1.0, 1.05, 0.95);
+      hipCap.castShadow = true;
+      hip.add(hipCap);
+
+      const thigh = limb(0.34, 0.09, this.appearance.skinTone);
+      thigh.name = isRight ? 'thigh-right' : 'thigh-left';
+      hip.add(thigh);
+
+      const knee = this.joint(kneeName, hip, new THREE.Vector3(0, -0.5, 0));
+      const calf = limb(0.32, 0.08, this.appearance.skinTone);
+      calf.name = isRight ? 'calf-right' : 'calf-left';
+      knee.add(calf);
+
+      // Socks follow the team PRIMARY color (shirtColor per applyBranding).
+      const sock = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.08, 0.081, 0.16, 12),
+        new THREE.MeshStandardMaterial({ color: this.appearance.shirtColor, roughness: 0.8 })
+      );
+      sock.name = isRight ? 'sock-right' : 'sock-left';
+      sock.position.y = -0.31;
+      knee.add(sock);
+
+      // CANONICAL GOLFER ORIENTATION: anatomical forward is +Z (defined by the
+      // face: nose/eyes/mouth/chest all face +Z). Feet must point toes toward +Z.
+      // Ankle sits near the heel (slightly -Z); toe projects forward (+Z).
+      const shoe = new THREE.Mesh(
+        new THREE.BoxGeometry(0.14, 0.1, 0.24),
+        new THREE.MeshStandardMaterial({ color: this.appearance.shoeColor, roughness: 0.85 })
+      );
+      shoe.name = isRight ? 'shoe-right' : 'shoe-left';
+      shoe.position.set(0, -0.46, 0.03);
+      shoe.castShadow = true;
+      knee.add(shoe);
+
+      const toe = new THREE.Mesh(
+        new THREE.SphereGeometry(0.07, 10, 8),
+        new THREE.MeshStandardMaterial({ color: this.appearance.shoeColor, roughness: 0.8 })
+      );
+      toe.name = isRight ? 'toe-right' : 'toe-left';
+      toe.scale.set(1, 0.72, 1.3);
+      toe.position.set(0, -0.47, 0.14);
+      knee.add(toe);
+    }
+
+    // ONE held disc, attached to the active discGrip (default = LEFT hand).
+    // Reuses the shared createDiscVisual construction. Position/orientation is
+    // LOCAL to the grip node so the disc follows the hand via the hierarchy —
+    // no render-loop following. Do NOT call equipAccessory('disc') here.
+    this.disc = createDiscVisual(0xe03a2f);
+    this.disc.name = 'held-disc';
+    this.disc.rotation.set(Math.PI / 2, 0, 0);
+    // Moderately larger than the prior 0.5 so it reads as a disc at gameplay
+    // distance, but not the oversized large-disc experiment.
+    this.disc.scale.setScalar(0.72);
+    this.disc.position.set(0, -0.02, 0.02);
+    this.disc.visible = this.discVisible;
+    this.attachDiscTo(this.discHand);
+
+    if (import.meta.env.DEV) {
+      this.logArmRigDebug();
+    }
+  }
+
+  private logArmRigDebug() {
+    this.root.updateMatrixWorld(true);
+    const world = (name: JointName) =>
+      this.joints
+        .get(name)
+        ?.getWorldPosition(new THREE.Vector3())
+        .toArray()
+        .map((v) => Number(v.toFixed(3)));
+    const torsoMesh = this.root.getObjectByName('torso-part') as THREE.Mesh | undefined;
+    let torsoWidth: number | undefined;
+    if (torsoMesh) {
+      torsoMesh.geometry.computeBoundingBox();
+      const box = torsoMesh.geometry.boundingBox!.clone().applyMatrix4(torsoMesh.matrixWorld);
+      torsoWidth = Number((box.max.x - box.min.x).toFixed(3));
+    }
+    console.info('[ARM RIG DEBUG]', {
+      torsoWidth,
+      leftShoulderPosition: world('shoulderL'),
+      rightShoulderPosition: world('shoulderR'),
+      leftElbowPosition: world('elbowL'),
+      rightElbowPosition: world('elbowR'),
+      shoulderLocalX: this.joints.get('shoulderL')?.position.x,
+      shoulderLocalY: this.joints.get('shoulderL')?.position.y,
+    });
+
+    // Front/back plane diagnostic (canonical anatomical forward = +Z).
+    if (torsoMesh) {
+      const tb = new THREE.Box3().setFromObject(torsoMesh);
+      const zOf = (name: JointName) =>
+        Number((this.joints.get(name)?.getWorldPosition(new THREE.Vector3()).z ?? 0).toFixed(3));
+      console.info('[ARM PLANE DEBUG]', {
+        anatomicalForwardAxis: '+Z',
+        torsoFront: Number(tb.max.z.toFixed(3)),
+        torsoCenter: Number(((tb.min.z + tb.max.z) / 2).toFixed(3)),
+        torsoBack: Number(tb.min.z.toFixed(3)),
+        leftShoulder: zOf('shoulderL'),
+        leftElbow: zOf('elbowL'),
+        rightShoulder: zOf('shoulderR'),
+        rightElbow: zOf('elbowR'),
+      });
+    }
+  }
+
+  private applyProfileToRig() {
+    if (this.avatarModelRoot || this.avatarModelError) {
+      return;
+    }
+
+    const profile =
+      this.appearance.profile ?? BODY_PROFILES[this.appearance.bodyProfile ?? 'neutralLean'];
+
+    const torso = this.joints.get('torso');
+    if (torso) {
+      // torsoLength scales the torso JOINT in Y only. The legacy torsoTaper
+      // parent-Z scale is removed (neutralized) so the new Chest Depth /
+      // Waist Depth controls own depth precisely without a broad parent
+      // multiplier. See "torsoTaper compatibility" note below.
+      torso.scale.set(1, profile.torsoLength, 1);
+    }
+
+    // CHEST = upper ribcage. chestWidth/chestDepth scale the (rescoped, short)
+    // chest capsule radially. Because torso-part no longer reaches the waist,
+    // Chest Width now reads as ribcage width, not whole-shirt width.
+    const chest = this.root.getObjectByName('torso-part');
+    if (chest) {
+      chest.scale.x = 0.98 * (profile.chestWidth ?? 1);
+      chest.scale.z = 0.76 * (profile.chestDepth ?? 1);
+    }
+    // Collar stays attached to the neck opening. It follows the chest only
+    // conservatively (sqrt dampens) so a wide chest does not blow out the
+    // collar. No new collar control is introduced.
+    const collarMesh = this.root.getObjectByName('collar-part');
+    if (collarMesh) {
+      collarMesh.scale.x = 1.0 * Math.sqrt(profile.chestWidth ?? 1);
+    }
+
+    // WAIST / LOWER TORSO: rebuild the tapered section so its TOP matches the
+    // chest boundary exactly (width AND depth) and its BOTTOM follows the
+    // authored Waist Width/Depth — one continuous surface, no horizontal ledge.
+    // All four radii are baked into geometry (mesh.scale can't taper top vs
+    // bottom or width vs depth independently).
+    const lowerTorso = this.root.getObjectByName('lower-torso-part');
+    if (lowerTorso instanceof THREE.Mesh) {
+      const chestW = profile.chestWidth ?? 1;
+      const chestD = profile.chestDepth ?? 1;
+      const waistW = profile.lowerTorsoWidth ?? 1;
+      const waistD = profile.lowerTorsoDepth ?? 1;
+      // Chest bottom boundary (matches torso-part's scaled X and Z radii).
+      const topX = Math.max(0.01, 0.19 * 0.98 * chestW);
+      const topZ = Math.max(0.01, 0.19 * 0.76 * chestD);
+      // Waist boundary (authored).
+      const bottomX = Math.max(0.01, 0.19 * waistW);
+      const bottomZ = Math.max(0.01, 0.19 * waistD);
+      const old = lowerTorso.geometry;
+      lowerTorso.geometry = makeWaistGeometry(topX, bottomX, topZ, bottomZ, 0.24);
+      old.dispose();
+      // No mesh scale — radii are baked. Reset in case a prior frame scaled it.
+      lowerTorso.scale.set(1, 1, 1);
+    }
+
+    // ANATOMICAL PELVIS (BODY, not clothing): flare from the finalized WAIST
+    // bottom outward to the HIP line. The pelvis TOP equals the waist bottom
+    // boundary (continuous seam — no averaging toward the hip). The pelvis
+    // BOTTOM flares to Hip Width/Depth. hipWidth also drives hip-joint spacing
+    // separately (below); here it sizes the pelvis skin, not the garment.
+    const pelvisBody = this.root.getObjectByName('pelvis-body-part');
+    if (pelvisBody instanceof THREE.Mesh) {
+      const waistW = profile.lowerTorsoWidth ?? 1;
+      const waistD = profile.lowerTorsoDepth ?? 1;
+      const hipW = profile.hipWidth ?? 1;
+      const hipD = profile.hipDepth ?? 1;
+      // Top == waist bottom (continuous with lower-torso-part).
+      const topX = Math.max(0.01, 0.19 * waistW);
+      const topZ = Math.max(0.01, 0.19 * waistD);
+      // Bottom == hip boundary. Hips are anatomically a bit wider/deeper than
+      // the waist baseline for a subtle male flare; derive from the semantic
+      // hipWidth/hipDepth rather than reusing the waist multiplier.
+      const bottomX = Math.max(0.01, 0.24 * hipW);
+      const bottomZ = Math.max(0.01, 0.2 * hipD);
+      const old = pelvisBody.geometry;
+      pelvisBody.geometry = makeWaistGeometry(topX, bottomX, topZ, bottomZ, 0.16);
+      old.dispose();
+      pelvisBody.scale.set(1, 1, 1);
+    }
+
+    // ANATOMICAL HIP MASSES: scale with hipWidth (lateral X) and hipDepth
+    // (front/back Z). Subtle — these are hip-socket masses, not new sliders.
+    const hipMassW = profile.hipWidth ?? 1;
+    const hipMassD = profile.hipDepth ?? 1;
+    ['pelvis-hip-left', 'pelvis-hip-right'].forEach((name) => {
+      const m = this.root.getObjectByName(name);
+      if (m) {
+        m.scale.set(1.0 * hipMassW, 0.9, 0.8 * hipMassD);
+      }
+    });
+
+    // Belt fit is now BODY-DERIVED in fitGarments() (belt wraps the anatomical
+    // waist boundary). Waist Size / Belt Width are applied there as small style
+    // adjustments; the buckle follows automatically as a child of belt-root.
+
+    const head = this.joints.get('head');
+    if (head) {
+      head.scale.set(profile.headScale, profile.headScale, profile.headScale);
+      // Head vertical placement: move the head up/down for neck/torso fit.
+      head.position.y = 0.78 * (profile.headVertical ?? 1);
+    }
+
+    const neck = this.root.getObjectByName('neck-part');
+    if (neck instanceof THREE.Mesh) {
+      neck.scale.set(profile.neckWidth, profile.neckLength, profile.neckWidth);
+      neck.position.set(0, 0.74 * (profile.neckVertical ?? 1), profile.neckForward ?? 0);
+    }
+
+    // Trapezius (neck→shoulder) dome: width spreads it across the shoulders,
+    // height thickens the neck base.
+    const trapezius = this.root.getObjectByName('trapezius-part');
+    if (trapezius instanceof THREE.Mesh) {
+      trapezius.scale.set(
+        1.9 * (profile.trapeziusWidth ?? 1),
+        0.55 * (profile.trapeziusHeight ?? 1),
+        0.9 * (profile.trapeziusDepth ?? 1)
+      );
+      // Vertical placement: raise/lower the dome along the neck base.
+      trapezius.position.y = 0.66 * (profile.trapeziusVertical ?? 1);
+    }
+
+    // Shoulder placement: In/Out moves the pivot toward/away from the torso
+    // centerline (baseline ±0.32); Vertical raises/lowers it (baseline y 0.6).
+    const shoulderInOut = profile.shoulderInOut ?? 1;
+    const shoulderVertical = profile.shoulderVertical ?? 1;
+    const shoulderL = this.joints.get('shoulderL');
+    const shoulderR = this.joints.get('shoulderR');
+    if (shoulderL) {
+      shoulderL.position.x = -0.32 * shoulderInOut;
+      shoulderL.position.y = 0.6 * shoulderVertical;
+    }
+    if (shoulderR) {
+      shoulderR.position.x = 0.32 * shoulderInOut;
+      shoulderR.position.y = 0.6 * shoulderVertical;
+    }
+
+    // Shorts follow the pelvis. hipWidth/torsoTaper still apply, and the
+    // dedicated shorts params scale the garment + each leg piece.
+    const shortsRoot = this.root.getObjectByName('shorts-root');
+    if (shortsRoot) {
+      // shortsWidth/shortsDepth size the whole garment; shortLegWidth is
+      // applied per-leg below so the waist stays under Shorts Width control.
+      shortsRoot.scale.set(
+        profile.hipWidth * (profile.shortsWidth ?? 1),
+        profile.shortsLength ?? 1,
+        profile.torsoTaper * (profile.shortsDepth ?? 1)
+      );
+      // shortsForward shifts the WHOLE garment (waist + legs) toward the front.
+      shortsRoot.position.z = profile.shortsForward ?? 0;
+      // shortsRise shifts the WHOLE garment up/down the torso (no stretch).
+      shortsRoot.position.y = profile.shortsRise ?? 0;
+    }
+    const shortsWaist = this.root.getObjectByName('shorts-upper-part');
+    if (shortsWaist) {
+      // shortsLength scales overall garment height via the waist section too.
+      shortsWaist.scale.set(
+        1.18 * (profile.shortsWidth ?? 1),
+        1.0 * (profile.shortsLength ?? 1),
+        0.94 * 1.17
+      );
+      shortsWaist.position.y = 0.12;
+    }
+    // (SHORTS LEGS block moved below the leg-scaling section so it reads the
+    // thigh's FINAL transform — see below.)
+
+    if (shoulderL) {
+      shoulderL.scale.set(profile.shoulderWidth, 1, 1);
+    }
+    if (shoulderR) {
+      shoulderR.scale.set(profile.shoulderWidth, 1, 1);
+    }
+
+    // Jersey sleeve fit is now BODY-DERIVED in fitGarments() (sleeve follows the
+    // transformed upper arm). Sleeve Length/Width are applied there as small
+    // style adjustments, not direct geometry multipliers.
+
+    // Arm length: scale the whole arm chain's Y (elbow offset + segments) so both
+    // arms lengthen/shorten together.
+    const armLength = profile.armLength ?? 1;
+    if (shoulderL) {
+      shoulderL.scale.set(profile.shoulderWidth, armLength, 1);
+    }
+    if (shoulderR) {
+      shoulderR.scale.set(profile.shoulderWidth, armLength, 1);
+    }
+
+    // Arm thickness: scale arm meshes radially (X/Z), preserving length (Y).
+    const armThickness = profile.armThickness ?? 1;
+    [
+      'upper-arm-left',
+      'upper-arm-right',
+      'forearm-left',
+      'forearm-right',
+      'palm-left',
+      'palm-right',
+    ].forEach((name) => {
+      const mesh = this.root.getObjectByName(name);
+      if (mesh) {
+        const base = name.startsWith('palm') ? new THREE.Vector3(0.95, 1.0, 0.6) : undefined;
+        if (base) {
+          mesh.scale.set(base.x * armThickness, base.y, base.z * armThickness);
+        } else {
+          mesh.scale.set(armThickness, 1, armThickness);
+        }
+      }
+    });
+
+    const hipL = this.joints.get('hipL');
+    const hipR = this.joints.get('hipR');
+    if (hipL) {
+      hipL.scale.set(profile.hipWidth, profile.legLength, 1);
+    }
+    if (hipR) {
+      hipR.scale.set(profile.hipWidth, profile.legLength, 1);
+    }
+
+    // Feet baseline: length (Z), width (X), height (Y).
+    const footL = profile.footLength ?? 1;
+    const footW = profile.footWidth ?? 1;
+    const footH = profile.footHeight ?? 1;
+    ['shoe-left', 'shoe-right'].forEach((name) => {
+      const mesh = this.root.getObjectByName(name);
+      if (mesh) mesh.scale.set(footW, footH, footL);
+    });
+    ['toe-left', 'toe-right'].forEach((name) => {
+      const mesh = this.root.getObjectByName(name);
+      if (mesh) mesh.scale.set(footW, 0.72 * footH, 1.3 * footL);
+    });
+    if (hipR) {
+      hipR.scale.set(profile.hipWidth, profile.legLength, 1);
+    }
+
+    // Thigh length: scale the thigh mesh (hip -> knee segment) Y on both legs.
+    const thighLength = profile.thighLength ?? 1;
+    ['thigh-left', 'thigh-right'].forEach((name) => {
+      const mesh = this.root.getObjectByName(name);
+      if (mesh) {
+        mesh.scale.set(1, thighLength, 1);
+      }
+    });
+
+    // Leg width (legTaper) scales thigh + calf radially; thighThickness adds a
+    // THIGH-only extra radial factor so thighs thicken independently of calves.
+    const legTaper = profile.legTaper ?? 1;
+    const thighThickness = profile.thighThickness ?? 1;
+    ['thigh-left', 'thigh-right'].forEach((name) => {
+      const mesh = this.root.getObjectByName(name);
+      if (mesh) {
+        mesh.scale.x = legTaper * thighThickness;
+        mesh.scale.z = legTaper * thighThickness;
+      }
+    });
+    // Hip caps track the thigh/hip thickness so they keep bridging the seam as
+    // the body changes (subtle — they cover the socket, not create bulk).
+    ['hip-cap-left', 'hip-cap-right'].forEach((name) => {
+      const mesh = this.root.getObjectByName(name);
+      if (mesh) {
+        mesh.scale.x = 1.0 * legTaper * thighThickness;
+        mesh.scale.z = 0.95 * legTaper * thighThickness;
+        mesh.scale.y = 1.05;
+      }
+    });
+    ['calf-left', 'calf-right'].forEach((name) => {
+      const mesh = this.root.getObjectByName(name);
+      if (mesh) {
+        mesh.scale.x = legTaper;
+        mesh.scale.z = legTaper;
+      }
+    });
+
+    // (SHORTS LEGS fit moved into fitShortsLegs(), called AFTER the final pose
+    // is applied so it measures the thigh's rendered center — see setAppearance.)
+
+    // Sock fit is now BODY-DERIVED in fitGarments() (sock follows the
+    // transformed calf). Sock Thickness is applied there as a small ease/style
+    // adjustment rather than a direct radial multiplier.
+
+    this.face?.setConfig({
+      skinTone: this.appearance.skinTone,
+      hairColor: this.appearance.hairColor,
+      hairStyle: this.appearance.hairStyle,
+      headScale: profile.headScale,
+      jawWidth: profile.jawWidth,
+      chinShape: profile.chinShape,
+      ...this.appearance.face,
+    });
+  }
+
+  private findModelBone(root: THREE.Object3D, name: string): THREE.Object3D | undefined {
+    let found: THREE.Object3D | undefined;
+    root.traverse((child) => {
+      if (found) {
+        return;
+      }
+      if (child.name === name) {
+        found = child;
+      }
+    });
+    return found;
+  }
+
+  setAvatarStateListener(
+    listener: ((status: 'loading' | 'loaded' | 'error', message: string) => void) | undefined
+  ) {
+    this.onAvatarStatusChange = listener;
+  }
+
+  getHairRoot(): THREE.Group | undefined {
+    const resolved = this.root.getObjectByName('hair-root') as THREE.Group | undefined;
+    if (resolved) {
+      this.root.userData.hairRoot = resolved;
+      return resolved;
+    }
+
+    const head = this.joints.get('head');
+    const nested = head?.getObjectByName('hair-root') as THREE.Group | undefined;
+    if (nested) {
+      this.root.userData.hairRoot = nested;
+      return nested;
+    }
+
+    return undefined;
+  }
+
+  setHeadOnlyPreview(enabled: boolean) {
+    const groups: Array<JointName> = ['shoulderL', 'shoulderR', 'elbowL', 'elbowR'];
+    groups.forEach((name) => {
+      const group = this.joints.get(name);
+      if (group) {
+        group.visible = !enabled;
+      }
+    });
+  }
+
+  private loadModelAvatar(modelId: AvatarModelId) {
+    if (modelId === 'none') {
+      return;
+    }
+
+    const url = AVATAR_MODEL_URLS[modelId];
+    if (!url) {
+      return;
+    }
+
+    const token = ++this.avatarLoadToken;
+    console.info(`[Golfer avatar] ${modelId} load start`, {
+      url,
+      token,
+      rootChildren: this.root.children.length,
+    });
+    this.onAvatarStatusChange?.('loading', `Loading ${modelId} avatar…`);
+    this.avatarModelError?.removeFromParent();
+    this.avatarModelError = undefined;
+    this.avatarModelRoot = undefined;
+    this.avatarModelLoading = new THREE.Group();
+    const label = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: (() => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 512;
+          canvas.height = 128;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.fillStyle = '#121821';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = '#3aa8ff';
+            ctx.lineWidth = 8;
+            ctx.strokeRect(18, 18, canvas.width - 36, canvas.height - 36);
+            ctx.fillStyle = '#f4f7fa';
+            ctx.font = 'bold 30px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('Loading avatar…', canvas.width / 2, canvas.height / 2);
+          }
+          const texture = new THREE.CanvasTexture(canvas);
+          texture.needsUpdate = true;
+          return texture;
+        })(),
+        transparent: true,
+        depthTest: false,
+      })
+    );
+    label.scale.set(1.8, 0.45, 1);
+    label.position.set(0, 1.1, 0);
+    this.avatarModelLoading.add(label);
+    this.root.add(this.avatarModelLoading);
+
+    const loader = new GLTFLoader();
+    loader.load(
+      url,
+      (gltf) => {
+        if (token !== this.avatarLoadToken) {
+          return;
+        }
+
+        const model = gltf.scene.clone(true);
+        model.name = `${modelId}-avatar`;
+        model.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+          }
+        });
+        const previous = this.avatarModelRoot;
+        if (previous) {
+          previous.removeFromParent();
+        }
+
+        this.avatarModelLoading?.removeFromParent();
+        this.avatarModelLoading = undefined;
+        this.avatarModelRoot = model;
+        this.avatarModelError = undefined;
+        this.root.add(model);
+        model.position.set(0, -0.45, 0);
+        model.rotation.y = 0;
+        model.scale.setScalar(1.18);
+        model.visible = true;
+        console.info(`[Golfer avatar] ${modelId} load success`, {
+          token,
+          meshCount: model.children.length,
+          boundingBox: new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3()).toArray(),
+        });
+        this.onAvatarStatusChange?.('loaded', `${modelId} avatar ready`);
+
+        const hand =
+          this.findModelBone(model, 'RightHand') ?? this.findModelBone(model, 'rightHand');
+        const head = this.findModelBone(model, 'Head') ?? this.findModelBone(model, 'head');
+        const back =
+          this.findModelBone(model, 'Spine') ?? this.findModelBone(model, 'hips') ?? model;
+
+        if (hand) {
+          this.attachPoints.set('rightHand', hand);
+          const disc = createDiscVisual(0xe03a2f);
+          disc.position.set(0.14, 0.1, 0.02);
+          disc.rotation.z = Math.PI / 2;
+          disc.scale.setScalar(0.82);
+          hand.add(disc);
+          this.disc = disc;
+        }
+
+        if (head) {
+          this.attachPoints.set('head', head);
+        }
+
+        this.attachPoints.set('back', back);
+        this.attachPoints.set(
+          'leftHand',
+          this.findModelBone(model, 'LeftHand') ?? this.findModelBone(model, 'leftHand') ?? model
+        );
+        this.attachPoints.set('rightHandAlt', hand ?? model);
+
+        this.root.position.y = 0;
+      },
+      undefined,
+      (error) => {
+        if (token !== this.avatarLoadToken) {
+          return;
+        }
+        console.error(`[Golfer avatar] ${modelId} load failed`, error);
+        this.onAvatarStatusChange?.('error', `Avatar load failed: ${modelId}`);
+        this.avatarModelLoading?.removeFromParent();
+        this.avatarModelLoading = undefined;
+        this.avatarModelRoot = undefined;
+        this.avatarModelError = new THREE.Group();
+        const label = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: (() => {
+              const canvas = document.createElement('canvas');
+              canvas.width = 512;
+              canvas.height = 128;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.fillStyle = '#1a1a1a';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#f8f8f8';
+                ctx.font = 'bold 36px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('Avatar load failed', canvas.width / 2, canvas.height / 2);
+              }
+              const texture = new THREE.CanvasTexture(canvas);
+              texture.needsUpdate = true;
+              return texture;
+            })(),
+            transparent: true,
+            depthTest: false,
+          })
+        );
+        label.scale.set(1.8, 0.45, 1);
+        label.position.set(0, 1.1, 0);
+        this.avatarModelError.add(label);
+        this.root.add(this.avatarModelError);
+      }
+    );
+  }
+
+  private clearAvatarModelContent() {
+    this.avatarModelLoading?.removeFromParent();
+    this.avatarModelLoading = undefined;
+    this.avatarModelError?.removeFromParent();
+    this.avatarModelError = undefined;
+    this.avatarModelRoot?.removeFromParent();
+    this.avatarModelRoot = undefined;
+  }
+
+  setAvatarModelId(modelId: AvatarModelId) {
+    this.avatarModelId = modelId;
+    this.appearance.avatarModelId = modelId;
+    this.attachPoints.clear();
+    this.accessories.clear();
+    this.joints.clear();
+    this.clearAvatarModelContent();
+    this.root.visible = true;
+
+    if (modelId === 'none') {
+      this.build();
+      this.applyProfileToRig();
+      this.applyPose(STAND_POSE, STAND_POSE, 0);
+      return;
+    }
+
+    this.loadModelAvatar(modelId);
+  }
+
+  setAppearance(options: Partial<GolferAppearance>) {
+    const merged = {
+      ...this.appearance,
+      ...options,
+    } as GolferAppearance;
+
+    // Resolve the profile: an explicit options.profile wins; otherwise keep the
+    // CURRENT appearance.profile (which may carry canonical overrides on top of
+    // the shared BODY_PROFILES preset). Falling back to the raw preset would
+    // silently drop those overrides on any non-profile setAppearance call.
+    const nextBodyProfile =
+      options.profile ??
+      this.appearance.profile ??
+      BODY_PROFILES[options.bodyProfile ?? merged.bodyProfile ?? 'neutralLean'];
+    merged.profile = nextBodyProfile;
+    merged.bodyProfile = nextBodyProfile.id;
+    if (options.avatarModelId) {
+      this.setAvatarModelId(options.avatarModelId);
+    }
+
+    const hairRoot = this.getHairRoot();
+    if (hairRoot) {
+      this.root.userData.hairRoot = hairRoot;
+    }
+
+    const outfit = {
+      ...this.appearance.outfit,
+      ...(merged.outfit ?? {}),
+    };
+    const face = {
+      ...this.appearance.face,
+      ...(merged.face ?? {}),
+    };
+    const nextFacePreset = options.facePreset ?? this.appearance.facePreset ?? 'neutral';
+
+    this.appearance = {
+      ...this.appearance,
+      ...merged,
+      profile: nextBodyProfile,
+      bodyProfile: nextBodyProfile.id,
+      facePreset: nextFacePreset,
+      outfit,
+      face,
+    };
+
+    this.look.hairStyle = this.appearance.hairStyle as unknown as GolferLook['hairStyle'];
+    this.look.hair = this.appearance.hairColor;
+    this.look.jersey = this.appearance.shirtColor;
+    this.look.shorts = this.appearance.shortsColor;
+    this.look.skin = this.appearance.skinTone;
+
+    const head = this.joints.get('head');
+    if (head && this.face) {
+      this.face.setConfig({
+        skinTone: this.appearance.skinTone,
+        hairColor: this.appearance.hairColor,
+        hairStyle: this.appearance.hairStyle,
+      });
+    }
+
+    this.applyProfileToRig();
+    // Re-apply the neutral pose so appearance-driven pose params (e.g. armRaise)
+    // take effect immediately in the Change Look preview without needing update().
+    this.applyPose(STAND_POSE, STAND_POSE, 0);
+    // Fit garments to the FINAL transformed anatomy AFTER the pose so they track
+    // the rendered body. ANATOMY is the source of truth; garments derive their
+    // base fit and user controls are only small style/ease adjustments.
+    this.fitGarments();
+    this.refreshAppearance();
+  }
+
+  // BODY-DERIVED GARMENT FIT. Each garment measures its anatomical source's
+  // transformed world geometry, converts the needed measurement/center into the
+  // garment parent's local space, applies a small garment ease + a DAMPENED user
+  // style adjustment, and updates. Ratio-based so it can't drift or compound.
+  // ANATOMY → CLOTHING, never the reverse. Runs after anatomy + pose are final.
+  private fitGarments() {
+    const profile = this.appearance.profile;
+    // Dampened fit: user control nudges fit around 1.0 instead of multiplying
+    // geometry. control 0.5 -> ~0.85x, 1.0 -> 1.0x, 3.5 -> ~1.75x.
+    const FIT_INFLUENCE = 0.3;
+    const fitAdjust = (control: number | undefined) => 1 + ((control ?? 1) - 1) * FIT_INFLUENCE;
+    const worldBox = (o: THREE.Object3D) => new THREE.Box3().setFromObject(o);
+
+    // SHORTS LEGS: a fabric shell around each anatomical upper thigh (reference).
+    const GARMENT_EASE = 1.45; // garment sits clearly outside the skin surface
+    (
+      [
+        ['shorts-leg-left', 'thigh-left'],
+        ['shorts-leg-right', 'thigh-right'],
+      ] as const
+    ).forEach(([legName, thighName]) => {
+      const leg = this.root.getObjectByName(legName) as THREE.Mesh | undefined;
+      const thigh = this.root.getObjectByName(thighName) as THREE.Mesh | undefined;
+      if (!leg || !thigh) return;
+      this.root.updateMatrixWorld(true);
+      const tb = new THREE.Box3().setFromObject(thigh);
+      const thighWorldW = tb.max.x - tb.min.x;
+      const thighWorldD = tb.max.z - tb.min.z;
+      const thighWorldCX = tb.getCenter(new THREE.Vector3()).x;
+      const thighWorldCZ = tb.getCenter(new THREE.Vector3()).z;
+      const fitX = fitAdjust(profile.shortLegWidth);
+      const fitZ = fitAdjust(profile.shortsDepth);
+      const legLen = profile.shortLegLength ?? 1;
+      leg.scale.set(1, legLen / Math.max(0.01, profile.shortsLength ?? 1), 1);
+      leg.updateMatrixWorld(true);
+      const lb = new THREE.Box3().setFromObject(leg);
+      const curW = Math.max(0.001, lb.max.x - lb.min.x);
+      const curD = Math.max(0.001, lb.max.z - lb.min.z);
+      leg.scale.x = (thighWorldW * GARMENT_EASE * fitX) / curW;
+      leg.scale.z = (thighWorldD * GARMENT_EASE * fitZ) / curD;
+      const anchor = leg.parent ?? this.root.getObjectByName('shorts-root');
+      if (!anchor) return;
+      const local = anchor.worldToLocal(new THREE.Vector3(thighWorldCX, 0, thighWorldCZ));
+      leg.position.x = local.x;
+      leg.position.z = local.z;
+      leg.position.y = -0.16 - 0.22 * (legLen - 1);
+    });
+
+    // SLEEVES: fit around a FIXED-RADIUS upper arm (pose-independent). The
+    // sleeve is a child of the shoulder so shoulder/elbow motion carries it
+    // automatically; only its radial scale is set here, and it must NOT change
+    // when the arm rotates. Derive the radial fit from the arm's INTRINSIC
+    // capsule radius (0.082) x armThickness, NOT from a pose-dependent world
+    // bounding box. This is what stops the sleeve from reshaping as the arm
+    // swings.
+    const UPPER_ARM_BASE_RADIUS = 0.082; // matches CapsuleGeometry(0.082, ...)
+    const intrinsicArmRadius = UPPER_ARM_BASE_RADIUS * (profile.armThickness ?? 1);
+    (['sleeve-left', 'sleeve-right'] as const).forEach((sleeveName) => {
+      const sleeve = this.root.getObjectByName(sleeveName) as THREE.Mesh | undefined;
+      if (!sleeve || !sleeve.parent) return;
+      const baseR = 0.1; // sleeve capsule base radius
+      const ease = 1.25; // garment clearance over the arm
+      const fit = fitAdjust(this.appearance.outfit?.sleeveWidth); // user Sleeve Width
+      const len = this.appearance.outfit?.sleeveLength ?? 1;
+      // Radial (X/Z) fit = intrinsic arm radius x ease x user width, normalized
+      // by the sleeve geometry base radius. Do NOT divide by the parent world
+      // scale: the shoulder hierarchy applies its world scale to BOTH the arm
+      // and the sleeve naturally, so dividing again would cancel it twice and
+      // bury the sleeve inside the arm. Both axes use the SAME intrinsic radius
+      // so the sleeve stays a fixed tube surrounding the arm.
+      const radial = (intrinsicArmRadius * ease * fit) / baseR;
+      sleeve.scale.x = radial;
+      sleeve.scale.z = radial;
+      sleeve.scale.y = len; // Sleeve Length stays a simple style adjustment
+    });
+
+    // SOCKS: derive radial fit from the transformed calf/lower leg. Sock is a
+    // child of the knee joint, so knee/ankle motion carries it automatically.
+    (
+      [
+        ['sock-left', 'calf-left'],
+        ['sock-right', 'calf-right'],
+      ] as const
+    ).forEach(([sockName, calfName]) => {
+      const sock = this.root.getObjectByName(sockName) as THREE.Mesh | undefined;
+      const calf = this.root.getObjectByName(calfName) as THREE.Mesh | undefined;
+      if (!sock || !calf || !sock.parent) return;
+      this.root.updateMatrixWorld(true);
+      const cb = worldBox(calf);
+      const calfW = Math.max(0.001, cb.max.x - cb.min.x);
+      const calfD = Math.max(0.001, cb.max.z - cb.min.z);
+      const parentScale = sock.parent.getWorldScale(new THREE.Vector3());
+      const baseR = 0.08; // sock cylinder base radius
+      const ease = 1.1;
+      const fit = fitAdjust(profile.sockThickness);
+      sock.scale.x = (calfW * ease * fit) / 2 / (baseR * Math.max(0.01, parentScale.x));
+      sock.scale.z = (calfD * ease * fit) / 2 / (baseR * Math.max(0.01, parentScale.z));
+    });
+
+    // BELT: derive base size/position from the anatomical waist boundary (bottom
+    // of lower-torso-part). The buckle is a child of belt-root so it follows.
+    const lowerTorso = this.root.getObjectByName('lower-torso-part') as THREE.Mesh | undefined;
+    const beltRoot = this.root.getObjectByName('belt-root') as THREE.Group | undefined;
+    if (lowerTorso && beltRoot && beltRoot.parent) {
+      this.root.updateMatrixWorld(true);
+      const wb = worldBox(lowerTorso);
+      const waistW = Math.max(0.001, wb.max.x - wb.min.x);
+      const waistBottomY = wb.min.y;
+      const fitW = fitAdjust(this.appearance.outfit?.beltWidth);
+      const pScale = beltRoot.parent.getWorldScale(new THREE.Vector3());
+      const baseR = 0.24; // belt ring geometry base radius
+      const ease = 1.15;
+      const targetW = (waistW * ease * fitW) / 2;
+      beltRoot.scale.x = targetW / (baseR * Math.max(0.01, pScale.x));
+      // Seat the belt so its top overlaps the jersey/waist bottom edge with a
+      // small stable seam (closes the visible jersey→belt gap). The ring's
+      // half-height is the tube radius (0.028*beltT); raising the center by one
+      // tube radius puts the ring's top at/above the waist-bottom landmark so
+      // the jersey bottom tucks into the belt rather than floating above it.
+      const beltT = this.appearance.outfit?.beltThickness ?? 1;
+      const overlap = 0.028 * beltT; // one ring tube radius of overlap
+      const localC = beltRoot.parent.worldToLocal(new THREE.Vector3(0, waistBottomY + overlap, 0));
+      const beltV = this.appearance.outfit?.beltVertical ?? 0;
+      beltRoot.position.y = localC.y + beltV;
+    }
+  }
+
+  private refreshAppearance() {
+    this.root.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) {
+        return;
+      }
+      const material = child.material as THREE.MeshStandardMaterial;
+      if (!material || material.color === undefined) {
+        return;
+      }
+
+      const name = child.name;
+      if (name === 'skin-part') {
+        material.color.setHex(this.appearance.skinTone);
+      }
+      if (name === 'hair-part') {
+        material.color.setHex(this.appearance.hairColor);
+      }
+      if (name === 'shirt-part') {
+        material.color.setHex(this.appearance.shirtColor);
+      }
+      if (name === 'shorts-part' || name.startsWith('shorts-')) {
+        material.color.setHex(this.appearance.shortsColor);
+      }
+      if (name === 'shoe-part') {
+        material.color.setHex(this.appearance.shoeColor);
+      }
+    });
+  }
+
+  setPosition(x: number, y: number, z: number) {
+    this.baseY = y;
+    this.root.position.set(x, y, z);
+  }
+
+  setVisible(visible: boolean) {
+    this.root.visible = visible;
+  }
+
+  // Read-only access to the joint map for the avatar PoseTarget adapter.
+  // Additive accessor; does not change any rig/animation behavior.
+  getJointGroup(name: JointName): THREE.Group | undefined {
+    return this.joints.get(name);
+  }
+
+  // Reset all joints to the neutral STAND_POSE baseline. Used by the dev
+  // shoulder-test page to re-apply a clean baseline each frame before applying
+  // semantic pose data. Additive; does not change existing behavior.
+  applyPoseBaseline() {
+    this.applyPose(STAND_POSE, STAND_POSE, 0);
+  }
+
+  // Master-preview-only visibility toggle for the held disc. Keeps the disc
+  // from confusing hand/arm diagnosis during neutral anatomy inspection.
+  // Does not touch gameplay disc logic.
+  setDiscVisible(visible: boolean) {
+    this.discVisible = visible;
+    if (this.disc) {
+      this.disc.visible = visible;
+    }
+  }
+
+  // Held-disc attachment. The grip node is semantic (no visible geometry);
+  // the disc is positioned LOCAL to the grip so it follows the hand through
+  // the hierarchy. There is only ever ONE held disc.
+  private attachDiscTo(hand: 'right' | 'left') {
+    const grip = this.root.getObjectByName(hand === 'right' ? 'rightDiscGrip' : 'leftDiscGrip');
+    if (grip && this.disc) {
+      grip.add(this.disc);
+    }
+  }
+
+  setDiscHand(hand: 'right' | 'left') {
+    this.discHand = hand;
+    this.attachDiscTo(hand);
+  }
+
+  getDiscGrip(hand: 'right' | 'left'): THREE.Group | undefined {
+    return this.root.getObjectByName(hand === 'right' ? 'rightDiscGrip' : 'leftDiscGrip') as
+      THREE.Group | undefined;
+  }
+
+  // Read-only access to a named attachment/logo slot (chestPrimaryLogo,
+  // chestSecondaryLogo, head, back, rightHand, leftHand...).
+  getAttachPoint(name: string): THREE.Object3D | undefined {
+    return this.attachPoints.get(name);
+  }
+
+  // Apply resolved UNIFORM branding to the appearance. Maps semantic slots to
+  // the uniform's existing color fields; skin/hair/eyes are untouched.
+  // Branding is independent of pose/proportions/rig.
+  applyBranding(branding: { primaryColor: number; secondaryColor: number; accentColor: number }) {
+    this.setAppearance({
+      shirtColor: branding.primaryColor,
+      shortsColor: branding.secondaryColor,
+      accentColor: branding.accentColor,
+    });
+  }
+
+  setHeading(yaw: number) {
+    this.root.userData.headingYaw = yaw;
+    this.root.rotation.y = yaw;
+  }
+
+  get isThrowing() {
+    return this.playing;
+  }
+
+  equipAccessory(slot: AccessorySlot, config: AccessoryConfig = {}) {
+    const existing = this.accessories.get(slot);
+    if (existing) {
+      this.removeAccessory(slot);
+    }
+
+    const root = this.attachPoints.get(
+      slot === 'bag' ? 'back' : slot === 'disc' ? 'rightHand' : 'head'
+    );
+    if (!root) {
+      return;
+    }
+
+    const group = new THREE.Group();
+    group.name = `${slot}-accessory`;
+
+    if (slot === 'cap') {
+      const cap = new THREE.Mesh(
+        new THREE.SphereGeometry(0.13, 12, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+        new THREE.MeshStandardMaterial({
+          color: config.color ?? this.appearance.shirtColor,
+          roughness: 0.82,
+        })
+      );
+      cap.rotation.z = Math.PI;
+      cap.position.y = 0.08;
+      group.add(cap);
+
+      const visor = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.16, 0.16, 0.025, 12, 1, false, -Math.PI / 2, Math.PI),
+        new THREE.MeshStandardMaterial({
+          color: config.accent ?? this.appearance.shirtColor,
+          roughness: 0.85,
+        })
+      );
+      visor.position.set(0, 0.02, -0.08);
+      group.add(visor);
+    }
+
+    if (slot === 'glasses') {
+      const frameMaterial = new THREE.MeshStandardMaterial({
+        color: 0x1a1c22,
+        roughness: 0.5,
+        metalness: 0.7,
+      });
+      const left = new THREE.Mesh(new THREE.BoxGeometry(0.065, 0.03, 0.02), frameMaterial);
+      const right = left.clone();
+      left.position.set(-0.045, 0.02, 0.11);
+      right.position.set(0.045, 0.02, 0.11);
+      const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.012, 0.02), frameMaterial);
+      bridge.position.set(0, 0.02, 0.115);
+      group.add(left, right, bridge);
+
+      const lensMaterial = new THREE.MeshStandardMaterial({
+        color: 0x5c6d8d,
+        transparent: true,
+        opacity: 0.7,
+        roughness: 0.2,
+      });
+      const leftLens = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.025, 0.005), lensMaterial);
+      const rightLens = leftLens.clone();
+      leftLens.position.set(-0.045, 0.02, 0.12);
+      rightLens.position.set(0.045, 0.02, 0.12);
+      group.add(leftLens, rightLens);
+    }
+
+    if (slot === 'bag') {
+      const body = new THREE.Mesh(
+        new THREE.BoxGeometry(0.2, 0.26, 0.12),
+        new THREE.MeshStandardMaterial({ color: config.color ?? 0x5c7d52, roughness: 0.9 })
+      );
+      body.position.set(0, 0.1, -0.1);
+      group.add(body);
+      const strap = new THREE.Mesh(
+        new THREE.BoxGeometry(0.1, 0.18, 0.025),
+        new THREE.MeshStandardMaterial({ color: config.accent ?? 0x26343a, roughness: 0.7 })
+      );
+      strap.position.set(0, 0.22, 0);
+      group.add(strap);
+    }
+
+    if (slot === 'disc') {
+      const disc = createDiscVisual(config.color ?? 0xe03a2f);
+      disc.scale.setScalar(config.scale ?? 0.82);
+      disc.position.set(0.08, 0, 0.06);
+      disc.rotation.z = Math.PI / 2;
+      disc.visible = config.visible ?? true;
+      group.add(disc);
+      this.disc = disc;
+    }
+
+    root.add(group);
+    this.accessories.set(slot, group);
+  }
+
+  removeAccessory(slot: AccessorySlot) {
+    const accessory = this.accessories.get(slot);
+    if (!accessory) {
+      return;
+    }
+
+    accessory.removeFromParent();
+    this.disposeGroup(accessory);
+    this.accessories.delete(slot);
+
+    if (slot === 'disc') {
+      this.disc.visible = true;
+    }
+  }
+
+  private disposeGroup(group: THREE.Group) {
+    group.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) {
+        return;
+      }
+      child.geometry.dispose();
+      const material = child.material;
+      if (Array.isArray(material)) {
+        material.forEach((entry) => entry.dispose());
+      } else {
+        material.dispose();
+      }
+    });
+  }
+
+  private idle(dt: number) {
+    this.idleT += dt;
+
+    const setup = STAND_POSE;
+    this.applyPose(setup, setup, 0);
+
+    const t = this.idleT + this.idlePhase;
+    const torso = this.joints.get('torso');
+    const head = this.joints.get('head');
+
+    if (torso) {
+      torso.rotation.y += Math.sin(t * 0.8) * 0.07;
+      torso.rotation.x += Math.sin(t * 1.3) * 0.015;
+    }
+    if (head) {
+      head.rotation.y += Math.sin(t * 0.45) * 0.3;
+    }
+
+    this.root.position.y = this.baseY + Math.sin(t * 1.9) * 0.012 * GOLFER_SCALE;
+  }
+
+  play(animation: ThrowAnimation = 'backhand') {
+    this.sequence = SEQUENCES[animation];
+    this.playing = true;
+    this.index = 0;
+    this.elapsed = 0;
+    this.releasing = false;
+    if (this.disc) {
+      this.disc.visible = true;
+    }
+  }
+
+  setDiscColor(color: number) {
+    if (!this.disc) {
+      return;
+    }
+    (this.disc.material as THREE.MeshStandardMaterial).color.setHex(color);
+  }
+
+  getDiscWorldPosition(target: THREE.Vector3): THREE.Vector3 {
+    if (!this.disc) {
+      return target.copy(this.root.position);
+    }
+    return this.disc.getWorldPosition(target);
+  }
+
+  update(dt: number): boolean {
+    if (!this.playing) {
+      this.idle(dt);
+      return false;
+    }
+
+    const isRecovering = this.index >= this.sequence.length - 1;
+    const duration = isRecovering ? RECOVER_DURATION : this.sequence[this.index + 1].duration;
+
+    this.elapsed += dt;
+    const t = Math.min(this.elapsed / duration, 1);
+
+    const from = this.sequence[this.index].pose;
+    const to = isRecovering ? this.sequence[0].pose : this.sequence[this.index + 1].pose;
+    const eased = this.index < RELEASE_INDEX - 1 ? t * t * (3 - 2 * t) : t * t;
+    this.applyPose(from, to, eased);
+
+    let released = false;
+
+    if (t >= 1) {
+      if (isRecovering) {
+        this.playing = false;
+        this.index = 0;
+        this.elapsed = 0;
+      } else {
+        this.index += 1;
+        this.elapsed = 0;
+
+        if (this.index === RELEASE_INDEX && !this.releasing) {
+          this.releasing = true;
+          released = true;
+          if (this.disc) {
+            this.disc.visible = false;
+          }
+        }
+      }
+    }
+
+    return released;
+  }
+
+  private applyPose(from: Pose, to: Pose, t: number) {
+    const headingYaw = (this.root.userData.headingYaw as number) ?? 0;
+    this.root.rotation.y = headingYaw + THREE.MathUtils.lerp(from.rootYaw, to.rootYaw, t);
+    this.root.position.y =
+      this.baseY + THREE.MathUtils.lerp(from.rootLift, to.rootLift, t) * GOLFER_SCALE;
+
+    for (const [name, group] of this.joints) {
+      const a = from.joints[name] ?? [0, 0, 0];
+      const b = to.joints[name] ?? [0, 0, 0];
+      group.rotation.set(
+        THREE.MathUtils.lerp(a[0], b[0], t),
+        THREE.MathUtils.lerp(a[1], b[1], t),
+        THREE.MathUtils.lerp(a[2], b[2], t)
+      );
+    }
+
+    // Arm raise (jumping-jack lateral abduction). Composed AFTER the pose lerp
+    // so it adds to the neutral/throw shoulder rotation.
+    const armRaise = Math.min(100, Math.max(0, this.appearance.profile?.armRaise ?? 0)) / 100;
+    if (armRaise > 0) {
+      this.setShoulderAbduction(armRaise * (Math.PI / 2) * 1.4); // 0 -> ~126deg extra
+    }
+  }
+
+  // Anatomical shoulder abduction (jumping-jack): rotate each arm in the
+  // shoulder's local Z axis to move the arm OUT away from the torso and UP.
+  // Correct mirrored signs (verified by T-pose diagnostic): right += angle,
+  // left -= angle. Keeps the arm in the body's shoulder plane (no backward sweep).
+  private setShoulderAbduction(angle: number) {
+    const shoulderR = this.joints.get('shoulderR');
+    const shoulderL = this.joints.get('shoulderL');
+    if (shoulderR) {
+      shoulderR.rotation.z += angle;
+    }
+    if (shoulderL) {
+      shoulderL.rotation.z -= angle;
+    }
+  }
+
+  dispose() {
+    this.root.removeFromParent();
+    this.root.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) {
+        return;
+      }
+      child.geometry.dispose();
+      const material = child.material;
+      if (Array.isArray(material)) {
+        material.forEach((entry) => entry.dispose());
+      } else {
+        material.dispose();
+      }
+    });
+  }
+}
