@@ -43,10 +43,10 @@ export class GolferPoseTarget implements PoseTarget {
       this.applyShoulder('shoulderR', 'right', pose.rightShoulder);
     }
     if (pose.leftElbow) {
-      this.applyElbow('elbowL', pose.leftElbow);
+      this.applyElbow('elbowL', 'left', pose.leftElbow);
     }
     if (pose.rightElbow) {
-      this.applyElbow('elbowR', pose.rightElbow);
+      this.applyElbow('elbowR', 'right', pose.rightElbow);
     }
     if (pose.head) {
       this.applyHead(pose.head);
@@ -99,10 +99,16 @@ export class GolferPoseTarget implements PoseTarget {
     };
   }
 
-  // Anatomical shoulder. Local axes (empirically validated on this rig):
-  //   abduction (arm out/in)  -> local Z, mirrored signs (right +=, left -=)
-  //   flexion (arm fwd/back)  -> local X, same sign both sides (forward = -X)
-  //   rotation (twist)        -> local Y, mirrored signs
+  // Anatomical shoulder. Abduction ("Out / In") is calibrated so the semantic
+  // angle is the arm's elevation from its natural hanging baseline:
+  //   0°  -> arm hangs at the baseline (relaxed at the side)
+  //   90° -> upper arm horizontal (shoulder->elbow level)
+  //   >90°-> arm rises above shoulder height
+  // The baseline shoulder hangs ~66.5° below horizontal (raw Z ~0.34). The arm
+  // reaches horizontal at raw Z ~-90° (-PI/2). So raw Z for a semantic angle A:
+  //   rawZ = baselineZ - (A/90) * (baselineZ - horizontalZ)
+  // Left/right mirror by negating the semantic delta around the baseline.
+  // flexion (fwd/back) -> local X (forward = -X), twist -> local Y (mirrored).
   private applyShoulder(
     joint: 'shoulderL' | 'shoulderR',
     side: 'left' | 'right',
@@ -116,22 +122,36 @@ export class GolferPoseTarget implements PoseTarget {
     const abduction = pose.abduction ?? 0;
     const flexion = pose.flexion ?? 0;
     const twist = pose.rotation ?? 0;
-    group.rotation.set(
-      group.rotation.x - flexion,
-      group.rotation.y + twist * sign,
-      group.rotation.z + abduction * sign
-    );
+
+    // Baseline raw shoulder Z for this side (captured identity = +/-0.34).
+    const baselineZ = group.rotation.z;
+    // Raw Z at which the upper arm is horizontal (empirically ~ -PI/2 for the
+    // left baseline at +0.34; mirrored for the right at -0.34 -> +PI/2).
+    const horizontalZ = (-Math.PI / 2) * Math.sign(baselineZ || sign);
+    // Semantic abduction fraction (90° = 1.0) mapped onto the baseline->
+    // horizontal span; beyond 90° continues naturally.
+    const frac = abduction / (Math.PI / 2);
+    const targetZ = baselineZ + frac * (horizontalZ - baselineZ) * 1; // sign baked into span
+
+    group.rotation.set(group.rotation.x - flexion, group.rotation.y + twist * sign, targetZ);
   }
 
-  // Elbow flexion bends the forearm toward the body. Local Z, same + sign both
-  // sides curls the hand up/in on this rig.
-  private applyElbow(joint: 'elbowL' | 'elbowR', pose: { flexion?: number }): void {
+  // Elbow flexion bends the forearm anatomically. Local Z, MIRRORED like
+  // shoulder abduction (left +=, right -=) so an equal semantic value curls
+  // both elbows the same anatomical way. Verified: equal flexion -> mirror
+  // image hand positions across the center plane.
+  private applyElbow(
+    joint: 'elbowL' | 'elbowR',
+    side: 'left' | 'right',
+    pose: { flexion?: number }
+  ): void {
     const group = this.golfer.getJointGroup(joint);
     if (!group) {
       return;
     }
+    const sign = side === 'right' ? -1 : 1;
     const flexion = pose.flexion ?? 0;
-    group.rotation.set(group.rotation.x, group.rotation.y, group.rotation.z + flexion);
+    group.rotation.set(group.rotation.x, group.rotation.y, group.rotation.z + flexion * sign);
   }
 
   // Hip. flexion (step forward/back) -> local X (forward = -X). abduction

@@ -9,15 +9,22 @@ describe('GolferPoseTarget', () => {
     const target = new GolferPoseTarget(golfer);
     golfer.root.updateMatrixWorld(true);
     const hand = golfer.getJointGroup('shoulderR')!;
-    const before = hand.rotation.z;
+    const before = hand.rotation.z; // baseline (natural hang)
 
+    // Semantic abduction is calibrated: 90° (PI/2) => upper arm horizontal.
+    // 0.8 rad (~46°) should move the arm partway from baseline toward the
+    // horizontal raw-Z value, i.e. baseline + frac*(horizontalZ - baseline).
     const pose: GolferPose = {
       id: 'test/abduct',
       name: 'Abduct',
       rightShoulder: { abduction: 0.8 },
     };
     target.applyPose(pose);
-    expect(hand.rotation.z).toBeCloseTo(before + 0.8, 5);
+    const frac = 0.8 / (Math.PI / 2);
+    const baselineZ = before; // right baseline is negative (~-0.34)
+    const horizontalZ = (-Math.PI / 2) * Math.sign(baselineZ);
+    const expected = baselineZ + frac * (horizontalZ - baselineZ);
+    expect(hand.rotation.z).toBeCloseTo(expected, 5);
     golfer.dispose();
   });
 

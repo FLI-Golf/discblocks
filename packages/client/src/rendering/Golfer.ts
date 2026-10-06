@@ -676,6 +676,13 @@ export interface CharacterAppearance {
     hairSideWidth: number;
     hairSideHeight: number;
     hairSideDepth: number;
+    sideburnLength: number;
+    sideburnWidth: number;
+    earSize: number;
+    earProminence: number;
+    earSpacing: number;
+    earVertical: number;
+    backHairLength: number;
   };
 }
 
@@ -1020,6 +1027,13 @@ export function buildCharacterAppearance(
     hairSideWidth: overrides.face?.hairSideWidth ?? facePreset.hairSideWidth,
     hairSideHeight: overrides.face?.hairSideHeight ?? facePreset.hairSideHeight,
     hairSideDepth: overrides.face?.hairSideDepth ?? facePreset.hairSideDepth,
+    sideburnLength: overrides.face?.sideburnLength ?? facePreset.sideburnLength,
+    sideburnWidth: overrides.face?.sideburnWidth ?? facePreset.sideburnWidth,
+    earSize: overrides.face?.earSize ?? facePreset.earSize,
+    earProminence: overrides.face?.earProminence ?? facePreset.earProminence,
+    earSpacing: overrides.face?.earSpacing ?? facePreset.earSpacing,
+    earVertical: overrides.face?.earVertical ?? facePreset.earVertical,
+    backHairLength: overrides.face?.backHairLength ?? facePreset.backHairLength,
   };
 
   const appearance: CharacterAppearance = {
@@ -1033,6 +1047,8 @@ export function buildCharacterAppearance(
     shortsColor: overrides.shortsColor ?? SHORTS,
     shoeColor: overrides.shoeColor ?? SHOE,
     accentColor: overrides.accentColor ?? 0xd72638,
+    beltColor: overrides.beltColor,
+    buckleColor: overrides.buckleColor,
     jerseyNumber: overrides.jerseyNumber ?? 1,
     brow: face.brow,
     nose: face.nose,
@@ -1119,23 +1135,113 @@ export const DEFAULT_MALE_APPEARANCE: GolferAppearance = buildCharacterAppearanc
   shortsColor: 0x1a1a1e,
   shoeColor: SHOE,
   accentColor: 0xe02b20,
+  beltColor: 10167069,
   jerseyNumber: 1,
   beard: 0,
   stubble: 0,
   facePreset: 'male',
+  // Canonical approved male body proportions. These OVERRIDE the shared
+  // BODY_PROFILES.athleticMale for this default golfer only (the preset stays
+  // untouched so other golfers/tests are unaffected).
   profile: {
     ...BODY_PROFILES.athleticMale,
-    headScale: 1.02,
-    jawWidth: DEFAULT_MALE_FACE.jawWidth,
-    chinShape: 0.98,
+    shoulderWidth: 1.07,
+    torsoLength: 0.94,
+    torsoTaper: 1.1,
+    hipWidth: 0.5,
+    hipDepth: 0.6,
+    armThickness: 0.59,
+    armLength: 0.65,
+    thighLength: 0.96,
+    legLength: 0.77,
+    legTaper: 0.84,
+    thighThickness: 1.15,
+    headScale: 1.06,
+    jawWidth: 1.12,
+    chinShape: 0.25,
+    neckLength: 1.27,
+    chestWidth: 0.75,
+    chestDepth: 0.6,
+    waistSize: 1.45,
+    lowerTorsoWidth: 0.91,
+    headVertical: 1.4,
+    trapeziusWidth: 0.5,
+    trapeziusHeight: 0.56,
+    trapeziusVertical: 1.1,
+    shoulderInOut: 0.65,
+    shoulderVertical: 0.94,
+    shortsWidth: 1.2,
+    shortsLength: 0.87,
+    shortsRise: -0.19,
+    shortsForward: 0.01,
+    shortsDepth: 0.97,
+    shortLegWidth: 1.15,
+    shortLegLength: 0.85,
+    footLength: 1.07,
+    footWidth: 1.6,
+    footHeight: 1.29,
+    sockThickness: 0.5,
   },
+  // Canonical approved male face/hair. Overrides FACE_PRESETS.male +
+  // FACE_ADVANCED_DEFAULTS for this default golfer only.
   face: {
-    brow: 0.62,
-    nose: 0.48,
-    eyeSpacing: 0.68,
-    mouth: 0.44,
+    brow: 0.47,
+    nose: 0.62,
+    eyeSpacing: 0.79,
+    mouth: 0.79,
     beard: 0,
     stubble: 0,
+    headPositionY: -0.12,
+    headPositionZ: -0.015,
+    cheekSize: 0.93,
+    cheekWidth: 0.73,
+    cheekHeight: 1.14,
+    cheekDepth: 1.39,
+    cheekSpacing: 0.56,
+    cheekPositionY: -0.095,
+    cheekPositionZ: -0.01,
+    chinSize: 0.87,
+    chinDepth: 0.61,
+    chinPositionY: -0.115,
+    chinPositionZ: -0.015,
+    eyePositionY: -0.07,
+    noseWidth: 1.34,
+    noseHeight: 0.46,
+    noseDepth: 1.19,
+    nosePositionY: -0.085,
+    mouthDepth: 1.65,
+    mouthPositionY: -0.03,
+    mouthFullness: 1.18,
+    mouthCornerAngle: -3,
+    browWidth: 0.89,
+    browSpacing: 1.19,
+    browPositionY: -0.06,
+    browAngle: 2,
+    browInnerHeight: 0.02,
+    hairScale: 1.09,
+    hairDepth: 0.94,
+    hairPositionY: 0.06,
+    hairCrownGrowIn: 1.25,
+    hairBackGrowIn: 0.96,
+    earSize: 2.5,
+    earProminence: 0.46,
+    earSpacing: 1.29,
+    earVertical: 0.045,
+    backHairLength: 1.28,
+  },
+  // Canonical approved outfit fit (sleeve/belt). Overrides outfitDefaults.
+  outfit: {
+    sleeveLength: 0.76,
+    sleeveWidth: 0.5,
+    collarHeight: 1,
+    shirtFit: 1,
+    shortsLength: 1,
+    pantsFit: 0.9,
+    beltThickness: 1,
+    beltWidth: 1.12,
+    beltVertical: -0.02,
+    beltBuckle: 1.34,
+    beltTightness: 0.79,
   },
 });
 
@@ -2641,7 +2747,16 @@ export class Face {
     return this.config[key] ?? FACE_ADVANCED_DEFAULTS[key];
   }
 
+  private resetToBaseline() {
+    for (const [object, baseline] of this.baselineTransforms) {
+      object.position.copy(baseline.position);
+      object.rotation.copy(baseline.rotation);
+      object.scale.copy(baseline.scale);
+    }
+  }
+
   private apply() {
+    this.resetToBaseline();
     (
       [
         'headScale',
@@ -3249,7 +3364,11 @@ export class Golfer {
     const presetId = legacy.facePreset ?? (bodyProfile === 'athleticFemale' ? 'female' : 'male');
     const facePreset = FACE_PRESETS[presetId] ?? FACE_PRESETS.male;
     const profile = { ...BODY_PROFILES[bodyProfile], ...legacy.profile };
+    // Preserve the FULL outfit (belt width/buckle/tightness/vertical,
+    // sleeveWidth, etc.) so canonical overrides survive; the legacy top-level
+    // keys then fill any gaps from defaults.
     const outfit = {
+      ...legacy.outfit,
       sleeveLength: legacy.sleeveLength ?? legacy.outfit?.sleeveLength ?? 1,
       collarHeight: legacy.collarHeight ?? legacy.outfit?.collarHeight ?? 1,
       shirtFit: legacy.shirtFit ?? legacy.outfit?.shirtFit ?? 1,
@@ -3283,6 +3402,8 @@ export class Golfer {
       shortsColor: legacy.shortsColor ?? legacy.shorts ?? SHORTS,
       shoeColor: legacy.shoeColor ?? SHOE,
       accentColor: legacy.accentColor ?? legacy.accent ?? 0xd72638,
+      beltColor: legacy.beltColor,
+      buckleColor: legacy.buckleColor,
       jerseyNumber: legacy.jerseyNumber ?? 1,
       brow: face.brow,
       nose: face.nose,
@@ -3363,16 +3484,17 @@ export class Golfer {
     shortsWaist.castShadow = true;
     shortsWaistRoot.add(shortsWaist);
 
-    // Short legs: fabric shells around the UPPER THIGH. Each leg is centered on
-    // its corresponding anatomical thigh (hipL/hipR sit at hips-local ±0.11) and
-    // its baseline radial size derives from the thigh radius (0.09) plus garment
-    // ease — so the garment follows the anatomy when Leg Spacing / Thigh Width /
-    // Thigh Depth change. shortLegLength scales how far down the thigh it reaches.
+    // Short legs: fabric shells around the UPPER THIGH. Each leg follows its
+    // corresponding hip/thigh hierarchy instead of the rigid pelvis garment root,
+    // so independent hip out/in motion carries the matching shorts leg.
     for (const side of [-1, 1]) {
       const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.108, 0.22, 6, 12), shortsMat());
       leg.name = side < 0 ? 'shorts-leg-left' : 'shorts-leg-right';
       leg.position.set(side * 0.11, -0.16, 0);
       leg.castShadow = true;
+      // Re-parent after the anatomical hip joints exist so each shorts leg tracks
+      // only its own leg/hip motion while the waist/seat stays on the pelvis.
+      leg.userData.__shortsSide = side;
       shortsRoot.add(leg);
     }
 
@@ -3571,14 +3693,32 @@ export class Golfer {
       // using the jersey (shirt) material so it reads as the shirt's sleeve.
       // sleeveLength (outfit) scales how far down the arm it reaches.
       const sleeve = new THREE.Mesh(
-        new THREE.CapsuleGeometry(0.1, 0.16, 6, 12),
+        new THREE.CapsuleGeometry(0.09, 0.14, 6, 12),
         createJerseyMaterial(this.appearance)
       );
       sleeve.name = isRight ? 'sleeve-right' : 'sleeve-left';
-      sleeve.geometry.translate(0, -0.1, 0);
-      sleeve.position.set(side * 0.02, 0, 0);
+      sleeve.geometry.translate(0, -0.09, 0);
+      // Keep the sleeve close to the shoulder socket while letting the jersey
+      // shoulder cap handle the torso transition. This avoids the oversized
+      // horizontal pad look without moving the anatomical pivot.
+      sleeve.position.set(side * 0.065, -0.025, 0);
+      sleeve.rotation.z = side * -0.18;
       sleeve.castShadow = true;
       shoulder.add(sleeve);
+
+      // JERSEY SHOULDER CAP: a modest rounded shoulder cap attached to the
+      // existing anatomical socket. Smaller and slightly tapered to read like a
+      // normal athletic jersey shoulder instead of a broad shoulder pad.
+      const shoulderCap = new THREE.Mesh(
+        new THREE.SphereGeometry(0.12, 16, 12),
+        createJerseyMaterial(this.appearance)
+      );
+      shoulderCap.name = isRight ? 'jersey-shoulder-right' : 'jersey-shoulder-left';
+      shoulderCap.scale.set(0.88, 0.72, 0.88);
+      shoulderCap.position.set(side * 0.07, -0.02, 0);
+      shoulderCap.rotation.z = side * -0.18;
+      shoulderCap.castShadow = true;
+      shoulder.add(shoulderCap);
 
       // Upper arm spans SHOULDER -> ELBOW exactly (top at pivot, bottom at elbow).
       const upperArm = new THREE.Mesh(
@@ -3653,6 +3793,11 @@ export class Golfer {
       const kneeName: JointName = isRight ? 'kneeR' : 'kneeL';
 
       const hip = this.joint(hipName, hips, new THREE.Vector3(side * 0.11, -0.12, 0));
+      const shortsLeg = this.root.getObjectByName(isRight ? 'shorts-leg-right' : 'shorts-leg-left');
+      if (shortsLeg && shortsLeg.parent !== hip) {
+        hip.add(shortsLeg);
+        shortsLeg.position.set(side * 0.11, -0.16, 0);
+      }
       // HIP CAP: a small skin volume at the hip socket that overlaps the pelvis
       // above and the thigh top below. It rotates WITH the thigh (parented to the
       // hip joint), so it covers the mechanical seam during hip articulation —
@@ -4301,8 +4446,14 @@ export class Golfer {
       ...options,
     } as GolferAppearance;
 
+    // Resolve the profile: an explicit options.profile wins; otherwise keep the
+    // CURRENT appearance.profile (which may carry canonical overrides on top of
+    // the shared BODY_PROFILES preset). Falling back to the raw preset would
+    // silently drop those overrides on any non-profile setAppearance call.
     const nextBodyProfile =
-      options.profile ?? BODY_PROFILES[options.bodyProfile ?? merged.bodyProfile ?? 'neutralLean'];
+      options.profile ??
+      this.appearance.profile ??
+      BODY_PROFILES[options.bodyProfile ?? merged.bodyProfile ?? 'neutralLean'];
     merged.profile = nextBodyProfile;
     merged.bodyProfile = nextBodyProfile.id;
     if (options.avatarModelId) {
@@ -4383,8 +4534,7 @@ export class Golfer {
     ).forEach(([legName, thighName]) => {
       const leg = this.root.getObjectByName(legName) as THREE.Mesh | undefined;
       const thigh = this.root.getObjectByName(thighName) as THREE.Mesh | undefined;
-      const shortsRootObj = this.root.getObjectByName('shorts-root');
-      if (!leg || !thigh || !shortsRootObj) return;
+      if (!leg || !thigh) return;
       this.root.updateMatrixWorld(true);
       const tb = new THREE.Box3().setFromObject(thigh);
       const thighWorldW = tb.max.x - tb.min.x;
@@ -4394,8 +4544,6 @@ export class Golfer {
       const fitX = fitAdjust(profile.shortLegWidth);
       const fitZ = fitAdjust(profile.shortsDepth);
       const legLen = profile.shortLegLength ?? 1;
-      // Measure the leg's BASE world size at neutral fit (1,1) so the ease ratio
-      // doesn't cancel the fit adjustment, then apply the fit on top.
       leg.scale.set(1, legLen / Math.max(0.01, profile.shortsLength ?? 1), 1);
       leg.updateMatrixWorld(true);
       const lb = new THREE.Box3().setFromObject(leg);
@@ -4403,37 +4551,39 @@ export class Golfer {
       const curD = Math.max(0.001, lb.max.z - lb.min.z);
       leg.scale.x = (thighWorldW * GARMENT_EASE * fitX) / curW;
       leg.scale.z = (thighWorldD * GARMENT_EASE * fitZ) / curD;
-      // Center the leg on the thigh's transformed world center (X and Z).
-      const local = shortsRootObj.worldToLocal(new THREE.Vector3(thighWorldCX, 0, thighWorldCZ));
+      const anchor = leg.parent ?? this.root.getObjectByName('shorts-root');
+      if (!anchor) return;
+      const local = anchor.worldToLocal(new THREE.Vector3(thighWorldCX, 0, thighWorldCZ));
       leg.position.x = local.x;
       leg.position.z = local.z;
-      // Anchor top near the hip line; capsule scales from center so shift down
-      // by half the added height as length grows (downward-only lengthening).
       leg.position.y = -0.16 - 0.22 * (legLen - 1);
     });
 
-    // SLEEVES: derive radial fit from the transformed upper arm; the sleeve is a
-    // child of the shoulder so shoulder/elbow motion carries it automatically.
-    (
-      [
-        ['sleeve-left', 'upper-arm-left'],
-        ['sleeve-right', 'upper-arm-right'],
-      ] as const
-    ).forEach(([sleeveName, armName]) => {
+    // SLEEVES: fit around a FIXED-RADIUS upper arm (pose-independent). The
+    // sleeve is a child of the shoulder so shoulder/elbow motion carries it
+    // automatically; only its radial scale is set here, and it must NOT change
+    // when the arm rotates. Derive the radial fit from the arm's INTRINSIC
+    // capsule radius (0.082) x armThickness, NOT from a pose-dependent world
+    // bounding box. This is what stops the sleeve from reshaping as the arm
+    // swings.
+    const UPPER_ARM_BASE_RADIUS = 0.082; // matches CapsuleGeometry(0.082, ...)
+    const intrinsicArmRadius = UPPER_ARM_BASE_RADIUS * (profile.armThickness ?? 1);
+    (['sleeve-left', 'sleeve-right'] as const).forEach((sleeveName) => {
       const sleeve = this.root.getObjectByName(sleeveName) as THREE.Mesh | undefined;
-      const arm = this.root.getObjectByName(armName) as THREE.Mesh | undefined;
-      if (!sleeve || !arm || !sleeve.parent) return;
-      this.root.updateMatrixWorld(true);
-      const ab = worldBox(arm);
-      const armW = Math.max(0.001, ab.max.x - ab.min.x);
-      const armD = Math.max(0.001, ab.max.z - ab.min.z);
-      const parentScale = sleeve.parent.getWorldScale(new THREE.Vector3());
+      if (!sleeve || !sleeve.parent) return;
       const baseR = 0.1; // sleeve capsule base radius
-      const ease = 1.25;
-      const fit = fitAdjust(this.appearance.outfit?.sleeveWidth);
+      const ease = 1.25; // garment clearance over the arm
+      const fit = fitAdjust(this.appearance.outfit?.sleeveWidth); // user Sleeve Width
       const len = this.appearance.outfit?.sleeveLength ?? 1;
-      sleeve.scale.x = (armW * ease * fit) / 2 / (baseR * Math.max(0.01, parentScale.x));
-      sleeve.scale.z = (armD * ease * fit) / 2 / (baseR * Math.max(0.01, parentScale.z));
+      // Radial (X/Z) fit = intrinsic arm radius x ease x user width, normalized
+      // by the sleeve geometry base radius. Do NOT divide by the parent world
+      // scale: the shoulder hierarchy applies its world scale to BOTH the arm
+      // and the sleeve naturally, so dividing again would cancel it twice and
+      // bury the sleeve inside the arm. Both axes use the SAME intrinsic radius
+      // so the sleeve stays a fixed tube surrounding the arm.
+      const radial = (intrinsicArmRadius * ease * fit) / baseR;
+      sleeve.scale.x = radial;
+      sleeve.scale.z = radial;
       sleeve.scale.y = len; // Sleeve Length stays a simple style adjustment
     });
 

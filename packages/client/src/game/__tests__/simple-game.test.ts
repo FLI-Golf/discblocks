@@ -483,17 +483,17 @@ describe('Game Components', () => {
     expect(FACE_PRESETS.neutral.jawWidth).toBeCloseTo(1.08, 5);
     expect(DEFAULT_MALE_APPEARANCE.hairStyle).toBe('buzzCut');
     expect(DEFAULT_MALE_APPEARANCE.facePreset).toBe('male');
-    expect(DEFAULT_MALE_APPEARANCE.profile.headScale).toBeCloseTo(1.02, 5);
-    expect(DEFAULT_MALE_APPEARANCE.profile.jawWidth).toBeCloseTo(0.99, 5);
+    expect(DEFAULT_MALE_APPEARANCE.profile.headScale).toBeCloseTo(1.06, 5);
+    expect(DEFAULT_MALE_APPEARANCE.profile.jawWidth).toBeCloseTo(1.12, 5);
     expect(DEFAULT_GOLFER_APPEARANCE.hairStyle).toBe('buzzCut');
     expect(DEFAULT_GOLFER_APPEARANCE.facePreset).toBe('male');
   });
 
-  it('should use 0.99 as the default male jaw width in the procedural face state', () => {
+  it('should use 1.12 as the default male jaw width in the procedural face state', () => {
     const face = new Face({ ...FACE_PRESETS.male });
     expect(face['config'].jawWidth).toBeCloseTo(0.99, 5);
-    expect(DEFAULT_MALE_APPEARANCE.profile.jawWidth).toBeCloseTo(0.99, 5);
-    expect(DEFAULT_GOLFER_APPEARANCE.profile.jawWidth).toBeCloseTo(0.99, 5);
+    expect(DEFAULT_MALE_APPEARANCE.profile.jawWidth).toBeCloseTo(1.12, 5);
+    expect(DEFAULT_GOLFER_APPEARANCE.profile.jawWidth).toBeCloseTo(1.12, 5);
   });
 
   it('should centralize the procedural face ranges and keep jaw default at 0.99 while widening the range', () => {

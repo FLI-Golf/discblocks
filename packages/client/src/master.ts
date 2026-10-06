@@ -456,6 +456,7 @@ const viewsEl = document.getElementById('views')!;
 views.forEach(([label, yaw]) => {
   const b = document.createElement('button');
   b.textContent = label;
+  b.dataset.testid = `view-${label.toLowerCase()}`;
   b.classList.toggle('is-active', yaw === 0);
   b.addEventListener('click', () => {
     camYaw = yaw;
@@ -714,7 +715,14 @@ function authoringProfileSlider(
   return slider.el;
 }
 
-function slider(label: string, get: () => number, set: (v: number) => void, min = 0, max = 140) {
+function slider(
+  label: string,
+  get: () => number,
+  set: (v: number) => void,
+  min = 0,
+  max = 140,
+  testId?: string
+) {
   const row = document.createElement('label');
   row.className = 'row';
   const span = document.createElement('span');
@@ -727,6 +735,11 @@ function slider(label: string, get: () => number, set: (v: number) => void, min 
   input.max = String(max);
   input.step = '1';
   input.value = String(get());
+  if (testId) {
+    row.dataset.testid = testId;
+    input.dataset.testid = `${testId}-input`;
+    out.dataset.testid = `${testId}-value`;
+  }
   input.addEventListener('input', () => {
     set(Number(input.value));
     out.textContent = `${input.value}°`;
@@ -1237,7 +1250,8 @@ makeSection(featureLeft, 'leftArm', 'Left Arm', (c) => {
       () => draft.lAbduction,
       (v) => (draft.lAbduction = v),
       0,
-      180
+      180,
+      'left-arm-out-in'
     )
   );
   c.appendChild(
@@ -1246,7 +1260,8 @@ makeSection(featureLeft, 'leftArm', 'Left Arm', (c) => {
       () => draft.lFlexion,
       (v) => (draft.lFlexion = v),
       -90,
-      180
+      180,
+      'left-arm-forward-back'
     )
   );
   c.appendChild(
@@ -1255,7 +1270,8 @@ makeSection(featureLeft, 'leftArm', 'Left Arm', (c) => {
       () => draft.lTwist,
       (v) => (draft.lTwist = v),
       -90,
-      90
+      90,
+      'left-arm-twist'
     )
   );
   c.appendChild(
@@ -1264,7 +1280,8 @@ makeSection(featureLeft, 'leftArm', 'Left Arm', (c) => {
       () => draft.lElbow,
       (v) => (draft.lElbow = v),
       0,
-      145
+      145,
+      'left-arm-elbow-bend'
     )
   );
 });
@@ -1281,7 +1298,8 @@ makeSection(featureLeft, 'rightArm', 'Right Arm', (c) => {
       () => draft.rAbduction,
       (v) => (draft.rAbduction = v),
       0,
-      180
+      180,
+      'right-arm-out-in'
     )
   );
   c.appendChild(
@@ -1290,7 +1308,8 @@ makeSection(featureLeft, 'rightArm', 'Right Arm', (c) => {
       () => draft.rFlexion,
       (v) => (draft.rFlexion = v),
       -90,
-      180
+      180,
+      'right-arm-forward-back'
     )
   );
   c.appendChild(
@@ -1299,7 +1318,8 @@ makeSection(featureLeft, 'rightArm', 'Right Arm', (c) => {
       () => draft.rTwist,
       (v) => (draft.rTwist = v),
       -90,
-      90
+      90,
+      'right-arm-twist'
     )
   );
   c.appendChild(
@@ -1308,7 +1328,8 @@ makeSection(featureLeft, 'rightArm', 'Right Arm', (c) => {
       () => draft.rElbow,
       (v) => (draft.rElbow = v),
       0,
-      145
+      145,
+      'right-arm-elbow-bend'
     )
   );
 });
@@ -1602,7 +1623,7 @@ makeSection(featureLeft, 'shorts', 'Shorts / Clothing', (c) => {
   c.appendChild(
     authoringProfileSlider('Short Leg Width', 'shortLegWidth', {
       min: 0.5,
-      max: 2.2,
+      max: 4.0,
       step: 0.05,
       hardMin: 0.1,
       hardMax: 4.0,

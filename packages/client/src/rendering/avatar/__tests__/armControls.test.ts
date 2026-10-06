@@ -168,4 +168,141 @@ describe('arm pose controls', () => {
     expect(finite).toBe(true);
     golfer.dispose();
   });
+
+  it('equal semantic inputs produce anatomical mirror images (L/R symmetry)', () => {
+    const handWorld = (g: Golfer, side: 'left' | 'right') => {
+      g.root.updateMatrixWorld(true);
+      return g.root
+        .getObjectByName(side === 'left' ? 'hand-left' : 'hand-right')!
+        .getWorldPosition(new THREE.Vector3());
+    };
+    const mirrorErr = (pose: Parameters<GolferPoseTarget['applyPose']>[0]) => {
+      const { golfer, target } = setup();
+      target.applyPose(pose);
+      const L = handWorld(golfer, 'left');
+      const R = handWorld(golfer, 'right');
+      const err = new THREE.Vector3(-L.x, L.y, L.z).distanceTo(R);
+      golfer.dispose();
+      return err;
+    };
+    // Every semantic control must mirror across the center plane (X -> -X).
+    const cases: Array<Parameters<GolferPoseTarget['applyPose']>[0]> = [
+      { id: 't', name: 't' }, // neutral
+      {
+        id: 't',
+        name: 't',
+        leftShoulder: { abduction: d(45) },
+        rightShoulder: { abduction: d(45) },
+      },
+      {
+        id: 't',
+        name: 't',
+        leftShoulder: { abduction: d(90) },
+        rightShoulder: { abduction: d(90) },
+      },
+      { id: 't', name: 't', leftShoulder: { flexion: d(45) }, rightShoulder: { flexion: d(45) } },
+      { id: 't', name: 't', leftShoulder: { flexion: d(-45) }, rightShoulder: { flexion: d(-45) } },
+      { id: 't', name: 't', leftShoulder: { rotation: d(45) }, rightShoulder: { rotation: d(45) } },
+      { id: 't', name: 't', leftElbow: { flexion: d(45) }, rightElbow: { flexion: d(45) } },
+      { id: 't', name: 't', leftElbow: { flexion: d(90) }, rightElbow: { flexion: d(90) } },
+    ];
+    for (const pose of cases) {
+      expect(mirrorErr(pose)).toBeLessThan(0.02);
+    }
+  });
+
+  it('sleeve radial fit is pose-independent (fixed-radius arm clothing)', () => {
+    const { golfer, target } = setup();
+    const sleeveScale = (side: 'left' | 'right') => {
+      const s = golfer.root.getObjectByName(`sleeve-${side}`)!;
+      return { x: s.scale.x, z: s.scale.z };
+    };
+    const neutralL = sleeveScale('left');
+    const neutralR = sleeveScale('right');
+    // Baseline left/right sleeves already match at neutral.
+    expect(Math.abs(neutralL.x - neutralR.x)).toBeLessThan(1e-3);
+    expect(Math.abs(neutralL.z - neutralR.z)).toBeLessThan(1e-3);
+
+    const poses: Array<Parameters<GolferPoseTarget['applyPose']>[0]> = [
+      {
+        id: 't',
+        name: 't',
+        leftShoulder: { abduction: d(90) },
+        rightShoulder: { abduction: d(90) },
+      },
+      {
+        id: 't',
+        name: 't',
+        leftShoulder: { abduction: d(90), flexion: d(-45) },
+        rightShoulder: { abduction: d(90), flexion: d(-45) },
+      },
+      {
+        id: 't',
+        name: 't',
+        leftShoulder: { abduction: d(90), rotation: d(45) },
+        rightShoulder: { abduction: d(90), rotation: d(45) },
+      },
+    ];
+    for (const pose of poses) {
+      golfer.applyPoseBaseline();
+      target.applyPose(pose);
+      golfer.root.updateMatrixWorld(true);
+      const L = sleeveScale('left');
+      const R = sleeveScale('right');
+      // Radial X/Z fit must not change with pose (sleeve just follows the arm).
+      expect(Math.abs(L.x - neutralL.x)).toBeLessThan(1e-3);
+      expect(Math.abs(L.z - neutralL.z)).toBeLessThan(1e-3);
+      // Left/right symmetry: identical intrinsic radial size.
+      expect(Math.abs(L.x - R.x)).toBeLessThan(1e-3);
+      expect(Math.abs(L.z - R.z)).toBeLessThan(1e-3);
+    }
+    golfer.dispose();
+  });
+
+  it('sleeve surrounds the upper arm (effective radius > arm radius)', () => {
+    const { golfer } = setup();
+    golfer.applyPoseBaseline();
+    golfer.root.updateMatrixWorld(true);
+    // Effective world radius = geometry base radius x local scale x parent world
+    // scale. Both the sleeve and arm share the shoulder parent scale, so compare
+    // their base-radius x local-scale products directly.
+    const armBaseR = 0.082;
+    const sleeveBaseR = 0.1;
+    for (const side of ['left', 'right'] as const) {
+      const sleeve = golfer.root.getObjectByName(`sleeve-${side}`)!;
+      const arm = golfer.root.getObjectByName(`upper-arm-${side}`)!;
+      const armEff = armBaseR * arm.scale.x; // arm mesh scale.x = armThickness
+      const sleeveEff = sleeveBaseR * sleeve.scale.x;
+      expect(sleeveEff).toBeGreaterThan(armEff);
+    }
+    golfer.dispose();
+  });
+
+  it('jersey shoulder caps cover the shoulder joint and follow the arm', () => {
+    const { golfer, target } = setup();
+    golfer.applyPoseBaseline();
+    golfer.root.updateMatrixWorld(true);
+    for (const side of ['left', 'right'] as const) {
+      const cap = golfer.root.getObjectByName(`jersey-shoulder-${side}`)!;
+      expect(cap).toBeTruthy();
+      // Cap is parented to the shoulder joint (follows the arm hierarchy).
+      const shoulder = golfer.getJointGroup(side === 'left' ? 'shoulderL' : 'shoulderR')!;
+      expect(cap.parent).toBe(shoulder);
+      // Cap covers the shoulder joint: its world box must contain the joint origin.
+      const jointPos = shoulder.getWorldPosition(new THREE.Vector3());
+      const capBox = new THREE.Box3().setFromObject(cap);
+      expect(capBox.containsPoint(jointPos)).toBe(true);
+    }
+    // Cap follows the arm: abduct both shoulders, cap world position must move.
+    const capL0 = new THREE.Box3()
+      .setFromObject(golfer.root.getObjectByName('jersey-shoulder-left')!)
+      .getCenter(new THREE.Vector3());
+    target.applyPose({ id: 't', name: 't', leftShoulder: { abduction: d(90) } });
+    golfer.root.updateMatrixWorld(true);
+    const capL1 = new THREE.Box3()
+      .setFromObject(golfer.root.getObjectByName('jersey-shoulder-left')!)
+      .getCenter(new THREE.Vector3());
+    expect(capL1.distanceTo(capL0)).toBeGreaterThan(0.05);
+    golfer.dispose();
+  });
 });
